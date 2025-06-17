@@ -1,0 +1,12 @@
+matplotlib
+openpyxl
+pandas
+Pillow
+plotly
+psycopg2-binary
+PyPDF2
+reportlab
+SQLAlchemy
+streamlit
+datetime
+pathlib
