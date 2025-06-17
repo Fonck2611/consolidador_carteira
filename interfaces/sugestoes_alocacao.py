@@ -161,8 +161,10 @@ def show():
     if abs(saldo_restante) > 0.01:
         st.warning("A alocação ainda não está equilibrada. Ajuste até o Saldo Restante ser zero.")
 
+    botao_disabled = bool(abs(saldo_restante) > 0.01)
+    
     # Avança para a etapa 5 mantendo 'estrategia' e 'Liquidez'
-    if st.button("Avançar para Confirmação e Geração do PDF", disabled=(abs(saldo_restante) > 0.01)):
+    if st.button("Avançar para Confirmação e Geração do PDF", disabled=botao_disabled):
         novos_ativos = []
         for cls in classes_ordered:
             df_cls = st.session_state[f"editor_df_{cls}"]
