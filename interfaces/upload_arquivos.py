@@ -5,7 +5,7 @@ def show():
     st.header("1. Upload dos Arquivos da Carteira")
 
     uploaded_files = st.file_uploader(
-        "Faça upload de um ou mais PDFs da carteira do cliente",
+        "Faça upload de um ou mais PDFs da carteira do cliente. Arquivos suportados: XPerformance",
         type="pdf",
         accept_multiple_files=True
     )
