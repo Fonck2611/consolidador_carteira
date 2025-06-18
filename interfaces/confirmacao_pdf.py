@@ -215,7 +215,11 @@ def show():
 
     # === GERAÇÃO E DOWNLOAD DO PDF ===
     modelo_raw = get_modelo_carteira(carteira_modelo)
-    modelo_df = pd.DataFrame(modelo_raw) if isinstance(modelo_raw, dict) else modelo_raw.copy()
+    # alteração realizada aqui: trata dict de escalares criando lista com um item
+    if isinstance(modelo_raw, dict):
+        modelo_df = pd.DataFrame([modelo_raw])  # alteração realizada aqui
+    else:
+        modelo_df = modelo_raw.copy()          # alteração realizada aqui
     percent_cols = [c for c in modelo_df.columns if "percentual" in c.lower()]
     if percent_cols:
         modelo_df = modelo_df.rename(columns={percent_cols[0]: "Percentual Ideal"})
