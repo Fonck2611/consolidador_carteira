@@ -4,12 +4,7 @@ def get_modelo_carteira(tipo):
             "Pós-Fixado": 70,
             "Pré-Fixado": 5,
             "Inflação": 15,
-            "Multimercados": 0,
-            "Renda Variável Brasil": 0,
-            "Fundos Listados": 0,
-            "Alternativos": 0,
-            "Renda Fixa Global": 10,
-            "Renda Variável Global": 0
+            "Renda Fixa Global": 10
         },
         "Moderada": {
             "Pós-Fixado": 35,
