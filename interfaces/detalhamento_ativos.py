@@ -144,7 +144,7 @@ def show():
 
         rec = row.to_dict()
         rec["Classificação"] = nova_cls
-        rec["Liquidez"] = nova_liq.strip() if nova_liq.strip() == "No vencimento" else f"D+{nova_liq.strip()}"
+        rec["Liquidez"] = nova_liq.strip() if nova_liq.strip() == "No Vencimento" else f"D+{nova_liq.strip()}"
         novos.append(rec)
 
         # Detalhes expandidos
