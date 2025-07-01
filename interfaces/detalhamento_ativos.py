@@ -134,7 +134,7 @@ def show():
 
         # Liquidez editável como texto (mantém D+x)
         key_liq = f"liquidez_{i}"
-        default_liq = row["Liquidez"]
+        default_liq = re.sub(r"D\+ ?", "", str(row["Liquidez"]))
         nova_liq = cols[4].text_input(
             label="Liquidez",
             value=default_liq,
@@ -144,7 +144,7 @@ def show():
 
         rec = row.to_dict()
         rec["Classificação"] = nova_cls
-        rec["Liquidez"] = nova_liq
+        rec["Liquidez"] = f"D+{nova_liq.strip()}"
         novos.append(rec)
 
         # Detalhes expandidos
