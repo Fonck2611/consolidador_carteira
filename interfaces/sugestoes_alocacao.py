@@ -132,7 +132,7 @@ def show():
                 num_rows="dynamic",
                 column_config={
                     "Ativo":            st.column_config.TextColumn(label="Ativo"),
-                    "Liquidez":         st.column_config.TextColumn(label="Liquidez", disabled=True),  # adicionado aqui
+                    "Liquidez":         st.column_config.TextColumn(label="Liquidez"),
                     "Valor Atual":      st.column_config.NumberColumn(label="Valor Atual", disabled=True),
                     "Valor Realocado":  st.column_config.NumberColumn(label="Valor Realocado"),
                     "Novo Valor":       st.column_config.NumberColumn(label="Novo Valor", disabled=True)
@@ -175,7 +175,7 @@ def show():
                     "Novo Valor":       r["Novo Valor"],
                     "Valor Realocado":  r["Valor Realocado"],
                     "Classificação":    cls,
-                    "Liquidez":         liq_map.get(r["Ativo"], "")
+                    "Liquidez":         r["Liquidez"]
                 })
         st.session_state.ativos_df = novos_ativos
         st.session_state.etapa      = 5
