@@ -1,6 +1,7 @@
 import streamlit as st
 import pandas as pd
 from utils.carteiras_modelo import get_modelo_carteira
+import re
 
 # Formata valores financeiros no padrão brasileiro
 def format_valor_br(valor):
@@ -84,7 +85,7 @@ def show():
         df_current["Valor Atual"]     = pd.to_numeric(df_current["Valor Atual"], errors="coerce").fillna(0)
         df_current["Valor Realocado"] = pd.to_numeric(df_current["Valor Realocado"], errors="coerce").fillna(0)
         df_current["Novo Valor"]      = df_current["Valor Atual"] + df_current["Valor Realocado"]
-        df_current["Liquidez"]        = df_current["Ativo"].map(liq_map)  # garantir que esteja no dataframe
+        df_current["Liquidez"]        = df_current["Ativo"].map(liq_map).apply(lambda x: re.sub(r"D\+ ?", "", str(x)))
         df_current = df_current[["Ativo", "Liquidez", "Valor Atual", "Valor Realocado", "Novo Valor"]]  # forçar ordem
 
         soma_realocado = df_current["Valor Realocado"].sum()
@@ -175,7 +176,7 @@ def show():
                     "Novo Valor":       r["Novo Valor"],
                     "Valor Realocado":  r["Valor Realocado"],
                     "Classificação":    cls,
-                    "Liquidez":         r["Liquidez"]
+                    "Liquidez":         r["Liquidez"].strip() if str(r["Liquidez"]).strip() == "No Vencimento" else f"D+{r['Liquidez'].strip()}"
                 })
         st.session_state.ativos_df = novos_ativos
         st.session_state.etapa      = 5
