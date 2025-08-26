@@ -570,7 +570,7 @@ def _html_to_pdf_bytes(html: str, base_url: str = ".") -> bytes:
 # FUNÇÃO PÚBLICA
 # ==============================
 
-def generate_pdf_html(
+def generate_pdf(
     dist_df: pd.DataFrame,
     modelo_df: pd.DataFrame,
     resumo_df: pd.DataFrame,
@@ -610,3 +610,4 @@ def generate_pdf_html(
         f.write(pdf_bytes)
 
     return output_path
+
