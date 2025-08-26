@@ -1,31 +1,33 @@
+# utils/geracao_pdf.py
+# Gerador de PDF com HTML (Lovable) + Jinja2 + WeasyPrint
+# Dep.: pip install weasyprint Jinja2 matplotlib pillow
+
 import io
 import os
 import base64
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 import pandas as pd
 import matplotlib.pyplot as plt
 
 from jinja2 import Environment, BaseLoader, select_autoescape
 
-# Tenta usar WeasyPrint; se não, orientação para fallback com Playwright
+# ====== WeasyPrint ======
 USE_WEASYPRINT = True
 try:
     if USE_WEASYPRINT:
         from weasyprint import HTML
-except Exception as _e:
+except Exception:
     USE_WEASYPRINT = False
 
-# Paleta existente no seu projeto
+# ====== Paleta ======
 try:
-    from utils.cores import PALETTE  # mantém sua paleta atual
+    from utils.cores import PALETTE
 except Exception:
-    # fallback simples se módulo não estiver acessível em ambiente de teste
     PALETTE = ["#0F2B56", "#2A6F97", "#468FAF", "#89C2D9", "#A9D6E5", "#5E6472", "#9CA3AF"]
 
 # ==============================
 # TEMPLATE HTML (Lovable) embutido
 # ==============================
-
 TEMPLATE_HTML = r"""<!DOCTYPE html>
 <html lang="pt-BR">
 <head>
@@ -78,7 +80,7 @@ TEMPLATE_HTML = r"""<!DOCTYPE html>
   thead{display:table-header-group}
   thead th{
     background:#9CA3AF;color:#fff;padding:7px 6px;text-align:center;font-weight:600;font-size:9px;border-bottom:1px solid #666;
-    white-space:nowrap; /* evita quebra no cabeçalho */
+    white-space:nowrap;
   }
   tbody td{padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:8.5px;overflow-wrap:anywhere}
   .txt-left{text-align:left}
@@ -319,10 +321,6 @@ def _format_pct(v: float) -> str:
         return str(v)
 
 def _pct_to_num(p: Any) -> float:
-    """
-    Converte '74,3%' -> 74.3 (para largura das barras).
-    Aceita float já numérico.
-    """
     if p is None:
         return 0.0
     if isinstance(p, (int, float)):
@@ -339,7 +337,7 @@ def _img_buf_to_data_url(buf: io.BytesIO) -> str:
 def _make_donut(labels: List[str], sizes: List[float], color_map: Dict[str, str]) -> io.BytesIO:
     colors_list = [color_map.get(lbl, PALETTE[i % len(PALETTE)]) for i, lbl in enumerate(labels)]
     b = io.BytesIO()
-    fig, ax = plt.subplots(figsize=(3.6, 3.6))  # um pouco menor p/ caber bem
+    fig, ax = plt.subplots(figsize=(3.6, 3.6))
     ax.pie(
         sizes,
         labels=None,
@@ -358,7 +356,6 @@ def _make_donut(labels: List[str], sizes: List[float], color_map: Dict[str, str]
 # ==============================
 # PIPE: DataFrames -> Contexto Jinja2
 # ==============================
-
 def _build_context(
     dist_df: pd.DataFrame,
     modelo_df: pd.DataFrame,
@@ -367,9 +364,9 @@ def _build_context(
     ativos_df: pd.DataFrame,
     logo_url: str,
     disclaimer_texto: str,
-    rodape_institucional: str = ""
+    rodape_institucional: str = "",
 ) -> Dict[str, Any]:
-    # --- Metadados do header ---
+    # Metadados do header
     cliente = sugestao.get("cliente_nome") or sugestao.get("CLIENTE_NOME") or ""
     assessor = sugestao.get("nome_assessor") or sugestao.get("NOME_ASSESSOR") or ""
     liquidez_sugerida = sugestao.get("liquidez_sugerida") or sugestao.get("LIQUIDEZ_SUGERIDA") or 0.0
@@ -377,27 +374,26 @@ def _build_context(
     patrimonio_total = 0.0
     if "valor" in dist_df.columns:
         try:
-            patrimonio_total = float(dist_df["valor"].astype(str).str.replace(".","", regex=False).str.replace(",",".", regex=False).astype(float).sum())
+            patrimonio_total = float(
+                dist_df["valor"].astype(str).str.replace(".", "", regex=False).str.replace(",", ".", regex=False).astype(float).sum()
+            )
         except Exception:
-            patrimonio_total = dist_df["valor"].sum()
+            patrimonio_total = float(dist_df["valor"].sum())
 
-    # --- Mapa de cores por classificação a partir da carteira atual ---
-    # (replicamos a lógica do seu código para manter cores consistentes entre os dois donuts)
+    # Mapa de cores pela carteira atual
     dist_sorted = dist_df.copy()
     if "Percentual" in dist_sorted.columns:
         dist_sorted = dist_sorted.sort_values(by="Percentual", ascending=False)
     labels_atual = dist_sorted["Classificação"].astype(str).tolist()
-    sizes_atual = dist_sorted.get("Percentual", pd.Series([0]*len(labels_atual))).astype(float).tolist()
+    sizes_atual = dist_sorted.get("Percentual", pd.Series([0] * len(labels_atual))).astype(float).tolist()
 
-    color_map = {}
+    color_map: Dict[str, str] = {}
     for i, lbl in enumerate(labels_atual):
         color_map[lbl] = PALETTE[i % len(PALETTE)]
-
-    # garantir cores também para classes da carteira modelo
     for lbl in modelo_df["Classificação"].astype(str).tolist():
         color_map.setdefault(lbl, PALETTE[len(color_map) % len(PALETTE)])
 
-    # --- Donuts como data URLs ---
+    # Donuts como data URLs
     buf_atual = _make_donut(labels_atual, sizes_atual, color_map)
     grafico_atual_src = _img_buf_to_data_url(buf_atual)
 
@@ -407,39 +403,32 @@ def _build_context(
     buf_modelo = _make_donut(labels_modelo, sizes_modelo, color_map)
     grafico_proposta_src = _img_buf_to_data_url(buf_modelo)
 
-    # --- Tabela comparativa central ---
-    # união de classificações de atual + modelo
+    # Tabela comparativa central
     todas_cls = list(dict.fromkeys(list(dist_df["Classificação"].astype(str)) + list(modelo_df["Classificação"].astype(str))))
-    # map atual %
     map_atual = dist_df.groupby("Classificação")["Percentual"].sum().to_dict()
-    # map modelo %
     map_modelo = modelo_df.groupby("Classificação")["Percentual Ideal"].sum().to_dict()
-
     comparativo = []
     for cls in todas_cls:
         a = float(map_atual.get(cls, 0.0))
         m = float(map_modelo.get(cls, 0.0))
         comparativo.append({
             "classificacao": cls,
-            "atual_perc": _format_pct(a),            # ex.: "74,3%"
-            "atual_perc_num": round(a, 2),           # p/ barra
+            "atual_perc": _format_pct(a),
+            "atual_perc_num": round(a, 2),
             "modelo_perc": _format_pct(m),
             "modelo_perc_num": round(m, 2),
         })
 
-    # --- Tabelas laterais: atual e proposta ---
-    # Atual
-    dist_fmt = dist_df.copy()
-    dist_fmt = dist_fmt.sort_values(by="valor", ascending=False)
+    # Tabelas laterais
+    dist_fmt = dist_df.copy().sort_values(by="valor", ascending=False)
     dist_fmt["valor_brl"] = dist_fmt["valor"].apply(_format_brl)
     dist_fmt["perc_pl"] = dist_fmt["Percentual"].apply(_format_pct)
     comp_atual = [
         {"classificacao": r["Classificação"], "valor_brl": r["valor_brl"], "perc_pl": r["perc_pl"]}
         for _, r in dist_fmt[["Classificação", "valor_brl", "perc_pl"]].iterrows()
     ]
-    # Proposta
-    modelo_fmt = modelo_df.copy()
-    modelo_fmt = modelo_fmt.rename(columns={"Percentual Ideal": "Percentual", "Valor Ideal (R$)": "valor"})
+
+    modelo_fmt = modelo_df.copy().rename(columns={"Percentual Ideal": "Percentual", "Valor Ideal (R$)": "valor"})
     if "valor" in modelo_fmt.columns:
         modelo_fmt = modelo_fmt.sort_values(by="valor", ascending=False)
         modelo_fmt["valor_brl"] = modelo_fmt["valor"].apply(_format_brl)
@@ -451,22 +440,20 @@ def _build_context(
         for _, r in modelo_fmt[["Classificação", "valor_brl", "perc_pl"]].iterrows()
     ]
 
-    # --- Diferenças (opcional): resumo_df já vem calculado no seu fluxo ---
-    diferencas = []
+    # Diferenças (opcional)
+    diferencas: List[Dict[str, str]] = []
     if isinstance(resumo_df, pd.DataFrame) and not resumo_df.empty:
-        # esperamos colunas: Classificação, Atual (%), Sugerida (%), Ajuste, Ação  (se forem outras, adapte abaixo)
-        cand_cols = resumo_df.columns.str.lower().tolist()
-        def pick(colopts: List[str]) -> str:
+        def pick(colopts: List[str]) -> Optional[str]:
             for c in resumo_df.columns:
                 if c.lower() in colopts:
                     return c
-            return colopts[0]
+            return None
 
-        col_cls = pick(["classificação","classificacao"])
-        col_atual = pick(["% do pl atual (%)","atual (%)","atual"])
-        col_sug = pick(["% do pl sugerida (%)","sugerida (%)","sugerida"])
-        col_adj = pick(["ajuste (%)","ajuste"])
-        col_acao = pick(["ação","acao"])
+        col_cls = pick(["classificação", "classificacao"]) or "Classificação"
+        col_atual = pick(["% do pl atual (%)", "atual (%)", "atual"]) or "Atual (%)"
+        col_sug = pick(["% do pl sugerida (%)", "sugerida (%)", "sugerida"]) or "Sugerida (%)"
+        col_adj = pick(["ajuste (%)", "ajuste"]) or "Ajuste (%)"
+        col_acao = pick(["ação", "acao"]) or "Ação"
 
         for _, r in resumo_df.iterrows():
             diferencas.append({
@@ -477,17 +464,14 @@ def _build_context(
                 "acao": str(r.get(col_acao, "")),
             })
 
-    # --- Sugestão detalhada (ativos_df) agrupada por classificação ---
+    # Sugestão detalhada
     sugestao_detalhada: List[Dict[str, Any]] = []
     if isinstance(ativos_df, pd.DataFrame) and not ativos_df.empty:
-        # Espera colunas: "Classificação", "Novo Valor", "estrategia" (nome do ativo) e opcional "% PL"
         df = ativos_df.copy()
-        # garante float
         try:
-            df["Novo Valor"] = df["Novo Valor"].astype(str).str.replace(".","", regex=False).str.replace(",",".", regex=False).astype(float)
+            df["Novo Valor"] = df["Novo Valor"].astype(str).str.replace(".", "", regex=False).str.replace(",", ".", regex=False).astype(float)
         except Exception:
             pass
-
         total_sug = float(df["Novo Valor"].fillna(0).sum())
 
         for cls, g in df.groupby("Classificação"):
@@ -495,19 +479,17 @@ def _build_context(
             grupo = {
                 "classificacao": str(cls),
                 "total_brl": _format_brl(soma),
-                "total_perc": _format_pct((soma/total_sug*100) if total_sug else 0.0),
+                "total_perc": _format_pct((soma / total_sug * 100) if total_sug else 0.0),
                 "ativos": []
             }
-            # ordena ativos desc por valor
             g2 = g.sort_values("Novo Valor", ascending=False)
             for _, r in g2.iterrows():
-                nome = str(r.get("estrategia", r.get("Ativo", ""))).replace("\uFFFD","").replace("\xa0"," ").strip()
+                nome = str(r.get("estrategia", r.get("Ativo", ""))).replace("\uFFFD", "").replace("\xa0", " ").strip()
                 valor = float(r.get("Novo Valor", 0.0))
-                # se já existir %PL da linha, usa; senão calcula
                 if "% PL" in g2.columns:
                     perc_pl_str = str(r["% PL"])
                 else:
-                    perc_pl_str = _format_pct((valor/total_sug*100) if total_sug else 0.0)
+                    perc_pl_str = _format_pct((valor / total_sug * 100) if total_sug else 0.0)
                 grupo["ativos"].append({
                     "nome": nome,
                     "valor_brl": _format_brl(valor),
@@ -524,12 +506,12 @@ def _build_context(
         # Gráficos
         "grafico_atual_src": grafico_atual_src,
         "grafico_proposta_src": grafico_proposta_src,
-        # Pág.1 comparativo + tabelas
+        # Pág.1
         "comparativo": comparativo,
         "comp_atual": comp_atual,
         "comp_proposta": comp_proposta,
         "liquidez_sugerida_brl": _format_brl(liquidez_sugerida),
-        # Pág.2 diferenças + sugestão detalhada
+        # Pág.2
         "diferencas": diferencas,
         "sugestao_detalhada": sugestao_detalhada,
         # Footer
@@ -541,7 +523,6 @@ def _build_context(
 # ==============================
 # RENDER HTML -> PDF
 # ==============================
-
 def _render_html(template_str: str, context: Dict[str, Any]) -> str:
     env = Environment(
         loader=BaseLoader(),
@@ -555,39 +536,47 @@ def _render_html(template_str: str, context: Dict[str, Any]) -> str:
 def _html_to_pdf_bytes(html: str, base_url: str = ".") -> bytes:
     if USE_WEASYPRINT:
         return HTML(string=html, base_url=base_url).write_pdf()
-    # Fallback com Playwright (se quiser habilitar):
-    # from playwright.sync_api import sync_playwright
-    # with sync_playwright() as p:
-    #     browser = p.chromium.launch()
-    #     page = browser.new_page()
-    #     page.set_content(html, wait_until="load")
-    #     pdf_bytes = page.pdf(format="A4", margin={"top":"20mm","right":"15mm","bottom":"20mm","left":"15mm"})
-    #     browser.close()
-    #     return pdf_bytes
-    raise RuntimeError("WeasyPrint não disponível. Ative o fallback com Playwright (ver comentário no código).")
+    raise RuntimeError("WeasyPrint não disponível. Instale dependências do Cairo/Pango.")
 
 # ==============================
 # FUNÇÃO PÚBLICA
 # ==============================
-
 def generate_pdf(
     dist_df: pd.DataFrame,
     modelo_df: pd.DataFrame,
     resumo_df: pd.DataFrame,
-    sugestao: Dict[str, Any],
-    ativos_df: pd.DataFrame,
+    sugestao: Optional[Dict[str, Any]] = None,
+    ativos_df: Optional[pd.DataFrame] = None,
     output_path: str = "relatorio_carteira.pdf",
-    logo_url: str = "",  # pode ser 'file:///C:/.../logo.png' ou data:image/png;base64,...
+    logo_url: str = "",
     disclaimer_texto: str = "",
-    rodape_institucional: str = ""
+    rodape_institucional: str = "",
+    **kwargs,  # <- # alteração realizada aqui: aceita extras como cliente_nome=, nome_assessor=, etc.
 ) -> str:
     """
-    Gera o PDF final no caminho `output_path` a partir dos DataFrames e metadados.
-    Retorna o caminho gerado.
+    Gera o PDF final no caminho `output_path`. Retorna o caminho gerado.
 
-    Mantém a mesma assinatura conceitual do seu gerador anterior (dist_df, modelo_df, resumo_df, sugestao, ativos_df).
+    Compatível com chamadas antigas que passam, por exemplo:
+      generate_pdf(..., cliente_nome="...", nome_assessor="...", liquidez_sugerida=...)
+    ou com chamadas que remetem um dict `sugestao`.
     """
-    # 1) Monta contexto Jinja2 a partir dos DataFrames
+    if sugestao is None:
+        sugestao = {}
+    # Merge de kwargs específicos dentro de `sugestao`  # alteração realizada aqui
+    for k_alias, k_std in [
+        ("cliente_nome", "cliente_nome"),
+        ("CLIENTE_NOME", "CLIENTE_NOME"),
+        ("nome_assessor", "nome_assessor"),
+        ("NOME_ASSESSOR", "NOME_ASSESSOR"),
+        ("liquidez_sugerida", "liquidez_sugerida"),
+        ("LIQUIDEZ_SUGERIDA", "LIQUIDEZ_SUGERIDA"),
+    ]:
+        if k_alias in kwargs and kwargs[k_alias] is not None:
+            sugestao[k_std] = kwargs[k_alias]
+
+    if ativos_df is None:
+        ativos_df = pd.DataFrame()
+
     contexto = _build_context(
         dist_df=dist_df,
         modelo_df=modelo_df,
@@ -598,16 +587,8 @@ def generate_pdf(
         disclaimer_texto=disclaimer_texto,
         rodape_institucional=rodape_institucional,
     )
-
-    # 2) Renderiza HTML
     html = _render_html(TEMPLATE_HTML, contexto)
-
-    # 3) Converte para PDF
     pdf_bytes = _html_to_pdf_bytes(html)
-
-    # 4) Salva em disco
     with open(output_path, "wb") as f:
         f.write(pdf_bytes)
-
     return output_path
-
