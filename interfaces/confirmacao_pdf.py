@@ -1,276 +1,594 @@
-import streamlit as st
+# utils/geracao_pdf.py
+# Gerador de PDF com HTML (Lovable) + Jinja2 + WeasyPrint
+# Dep.: pip install weasyprint Jinja2 matplotlib pillow
+
+import io
+import os
+import base64
+from typing import Any, Dict, List, Optional
 import pandas as pd
-import plotly.express as px
-import re
-import io  # alteração realizada aqui: import para manipular buffer de Excel
-from datetime import date
-from utils.carteiras_modelo import get_modelo_carteira
-from utils.cores import PALETTE
-from utils.geracao_pdf import generate_pdf
+import matplotlib.pyplot as plt
 
-def format_number_br(valor):
-    s = f"{valor:,.2f}"
-    return s.replace(",", "X").replace(".", ",").replace("X", ".")
+from jinja2 import Environment, BaseLoader, select_autoescape
 
-def show():
-    st.header("5. Confirmação e Geração de PDF")
+# ====== WeasyPrint ======
+USE_WEASYPRINT = True
+try:
+    if USE_WEASYPRINT:
+        from weasyprint import HTML
+except Exception:
+    USE_WEASYPRINT = False
 
-    # estilo das tabelas
-    st.markdown("""
-        <style>
-        table thead th:first-child, table tbody td:first-child {
-            text-align: left !important;
-        }
-        table thead th:not(:first-child), table tbody td:not(:first-child) {
-            text-align: center !important;
-        }
-        </style>
-    """, unsafe_allow_html=True)
+# ====== Paleta ======
+try:
+    from utils.cores import PALETTE
+except Exception:
+    PALETTE = ["#0F2B56", "#2A6F97", "#468FAF", "#89C2D9", "#A9D6E5", "#5E6472", "#9CA3AF"]
 
-    # entradas de cliente e assessor
-    cliente_nome  = st.text_input("Nome do Cliente")
-    nome_assessor = st.text_input("Nome do Assessor")
+# ==============================
+# TEMPLATE HTML (Lovable) embutido
+# ==============================
+TEMPLATE_HTML = r"""<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8">
+<title>Realocação de Carteira - {{cliente_nome}}</title>
+<style>
+  @page{
+    size:A4;
+    margin:20mm 15mm 20mm 15mm;
+    @top-center{content:element(header)}
+    @bottom-center{content:element(footer)}
+  }
 
-    # dados das etapas anteriores
-    ativos_df       = pd.DataFrame(st.session_state.get("ativos_df", []))
-    carteira_modelo = st.session_state.get("carteira_modelo", "")
-    sugestao        = st.session_state.get("sugestao", {})
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:"Segoe UI","Inter",Arial,sans-serif;font-size:11px;line-height:1.4;color:#000;background:#fff}
 
-    # validações iniciais
-    if ativos_df.empty or not carteira_modelo:
-        st.error("Informações incompletas. Volte e revise as etapas anteriores.")
-        return
-    for col in ("saldo_bruto", "Liquidez", "Novo Valor"):
-        if col not in ativos_df.columns:
-            st.error(f"Coluna '{col}' não encontrada. Verifique as etapas anteriores.")
-            return
+  /* ===== HEADER (running) ===== */
+  .header{position:running(header);background:#0F2B56;height:40px;display:flex;align-items:center;justify-content:space-between;padding:0 12px 0 12px}
+  .header .logo{width:125px;height:auto;max-height:30px}
+  .header .title{color:#fff;font-size:20px;font-weight:600}
 
-    # === DISTRIBUIÇÃO ATUAL ===
-    ativos_df["valor_atual"] = ativos_df["saldo_bruto"].astype(float)
-    dist_atual = (
-        ativos_df.groupby("Classificação")["valor_atual"]
-                 .sum()
-                 .reset_index()
+  .header-info{display:flex;justify-content:space-between;align-items:flex-start;margin:10px 0 10px 0;padding-bottom:10px;border-bottom:0.5px solid #000}
+  .client-info{font-size:14px;font-weight:700}
+  .metadata{text-align:right;font-size:11px}
+  .metadata .label{font-weight:600;color:#666}
+  .metadata .value{margin-left:8px}
+
+  /* ===== FOOTER (running) ===== */
+  .footer{position:running(footer);background:#f5f5f5;padding:10px 20px;text-align:center}
+  .disclaimer{font-size:9px;color:#000;max-width:90%;margin:0 auto 6px;line-height:1.3}
+  .institutional{font-size:8px;color:#666}
+
+  /* ===== PAGE CONTENT BOX ===== */
+  .page-content{margin-top:60px; margin-bottom:70px}
+  .page-title{text-align:center;font-size:18px;font-weight:600;margin:18px 0 20px 0;color:#0F2B56}
+
+  /* ===== GRIDS ===== */
+  .three-col-grid{display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;margin-bottom:16px}
+  .two-col-grid{display:grid;grid-template-columns:1fr 1fr;gap:14px;margin-bottom:14px}
+
+  /* ===== CARDS ===== */
+  .card{border:1px solid #e5e7eb;border-radius:8px;padding:10px;background:#fff}
+  .card-title{font-size:12px;font-weight:600;margin-bottom:6px;padding-bottom:4px;border-bottom:1px solid #e5e7eb;text-align:center}
+
+  .chart-container{text-align:center;margin-top:6px}
+  .chart-container img{max-width:100%;height:auto}
+
+  /* ===== TABLES ===== */
+  table{width:100%;border-collapse:collapse;font-size:9px;page-break-inside:auto;table-layout:fixed}
+  thead{display:table-header-group}
+  thead th{
+    background:#9CA3AF;color:#fff;padding:7px 6px;text-align:center;font-weight:600;font-size:9px;border-bottom:1px solid #666;
+    white-space:nowrap;
+  }
+  tbody td{padding:6px 8px;border-bottom:1px solid #e5e7eb;font-size:8.5px;overflow-wrap:anywhere}
+  .txt-left{text-align:left}
+  .txt-center{text-align:center}
+  .txt-right{text-align:right}
+
+  /* Subcabeçalho de classificação (grupo) */
+  tbody.group{display:table-row-group;page-break-inside:avoid}
+  .subheader{background:#f3f4f6}
+  .subheader td{font-weight:700;font-size:9px;border-top:1px solid #d1d5db;padding:8px}
+
+  /* Tabela comparativa central com barras */
+  .comparative-table td{vertical-align:middle}
+  .bar-wrap{display:flex;align-items:center;gap:6px}
+  .bar{height:10px;border-radius:3px;background:#0F2B56;width:0;}
+  .bar[data-w]{width:calc(var(--w,0) * 1%)}
+  .bar-val{min-width:36px;text-align:center}
+
+  /* Tabelas detalhadas lado a lado */
+  .detail-table thead th{background:#888}
+
+  /* Liquidez sugerida box */
+  .liquidez-box{font-size:10px;color:#374151;margin-top:6px;text-align:right}
+  .liquidez-box b{font-weight:700}
+
+  /* Quebras */
+  .page-break{page-break-before:always}
+</style>
+</head>
+<body>
+
+  <!-- ===== Running Header ===== -->
+  <div class="header">
+    <img src="{{logo_url}}" alt="Logo" class="logo">
+    <div class="title">Realocação de Carteira</div>
+  </div>
+
+  <div class="page-content">
+    <!-- Linha abaixo do header -->
+    <div class="header-info">
+      <div class="client-info">{{cliente_nome | upper}}</div>
+      <div class="metadata">
+        <div><span class="label">Assessor de Investimentos:</span><span class="value">{{nome_assessor}}</span></div>
+        <div><span class="label">Patrimônio Total:</span><span class="value">{{patrimonio_total_brl}}</span></div>
+      </div>
+    </div>
+
+    <!-- ===== PÁGINA 1 ===== -->
+    <h1 class="page-title">Proposta de Alocação de Carteira</h1>
+
+    <!-- Grids: gráfico - comparativo - gráfico -->
+    <div class="three-col-grid">
+      <div class="card">
+        <div class="card-title">CARTEIRA ATUAL</div>
+        <div class="chart-container">
+          <img src="{{grafico_atual_src}}" alt="Gráfico Carteira Atual">
+        </div>
+      </div>
+
+      <div class="card">
+        <table class="comparative-table">
+          <thead>
+            <tr>
+              <th>Atual (%)</th>
+              <th>Classificação</th>
+              <th>Modelo (%)</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for lin in comparativo %}
+            <tr>
+              <td class="txt-center">
+                <div class="bar-wrap">
+                  <div class="bar" data-w style="--w: {{ lin.atual_perc_num | default(0) }};"></div>
+                  <span class="bar-val">{{ lin.atual_perc }}</span>
+                </div>
+              </td>
+              <td class="txt-left">{{ lin.classificacao }}</td>
+              <td class="txt-center">
+                <div class="bar-wrap" style="justify-content:flex-end">
+                  <span class="bar-val">{{ lin.modelo_perc }}</span>
+                  <div class="bar" data-w style="--w: {{ lin.modelo_perc_num | default(0) }};"></div>
+                </div>
+              </td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="card-title">CARTEIRA PROPOSTA</div>
+        <div class="chart-container">
+          <img src="{{grafico_proposta_src}}" alt="Gráfico Carteira Proposta">
+        </div>
+      </div>
+    </div>
+
+    <!-- Tabelas lado a lado -->
+    <div class="two-col-grid">
+      <div class="card">
+        <div class="card-title">Carteira Atual</div>
+        <table class="detail-table">
+          <thead>
+            <tr>
+              <th class="txt-left">Classificação</th>
+              <th class="txt-right">Valor</th>
+              <th class="txt-right">% PL</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for lin in comp_atual %}
+            <tr>
+              <td class="txt-left">{{ lin.classificacao }}</td>
+              <td class="txt-right">{{ lin.valor_brl }}</td>
+              <td class="txt-right">{{ lin.perc_pl }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+      </div>
+
+      <div class="card">
+        <div class="card-title">Carteira Proposta</div>
+        <table class="detail-table">
+          <thead>
+            <tr>
+              <th class="txt-left">Classificação</th>
+              <th class="txt-right">Valor</th>
+              <th class="txt-right">% PL</th>
+            </tr>
+          </thead>
+          <tbody>
+            {% for lin in comp_proposta %}
+            <tr>
+              <td class="txt-left">{{ lin.classificacao }}</td>
+              <td class="txt-right">{{ lin.valor_brl }}</td>
+              <td class="txt-right">{{ lin.perc_pl }}</td>
+            </tr>
+            {% endfor %}
+          </tbody>
+        </table>
+        <div class="liquidez-box">Liquidez do portfólio sugerido (R$): <b>{{ liquidez_sugerida_brl }}</b></div>
+      </div>
+    </div>
+
+    <!-- ===== PÁGINA 2 ===== -->
+    <div class="page-break"></div>
+
+    {% if diferencas %}
+    <div class="card" style="margin-bottom:14px">
+      <div class="card-title" style="text-align:left">Diferença entre Portfólio Atual e Sugerido</div>
+      <table class="detail-table">
+        <thead>
+          <tr>
+            <th class="txt-left">Classificação</th>
+            <th class="txt-center">Atual (%)</th>
+            <th class="txt-center">Sugerida (%)</th>
+            <th class="txt-center">Ajuste</th>
+            <th class="txt-center">Ação</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for d in diferencas %}
+          <tr>
+            <td class="txt-left">{{ d.classificacao }}</td>
+            <td class="txt-center">{{ d.atual_perc }}</td>
+            <td class="txt-center">{{ d.sugerida_perc }}</td>
+            <td class="txt-center">{{ d.ajuste_perc }}</td>
+            <td class="txt-center">{{ d.acao }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    <!-- Sugestão detalhada por classificação: um <tbody> por grupo -->
+    <div class="card">
+      <div class="card-title" style="text-align:left">Sugestão de Carteira</div>
+      <table class="detail-table">
+        <thead>
+          <tr>
+            <th class="txt-left">Ativo</th>
+            <th class="txt-right">Capital Alocado</th>
+            <th class="txt-right">% PL</th>
+          </tr>
+        </thead>
+
+        {% for grupo in sugestao_detalhada %}
+        <tbody class="group">
+          <tr class="subheader">
+            <td class="txt-left"><b>{{ grupo.classificacao | upper }}</b></td>
+            <td class="txt-right"><b>{{ grupo.total_brl }}</b></td>
+            <td class="txt-right"><b>{{ grupo.total_perc }}</b></td>
+          </tr>
+          {% for ativo in grupo.ativos %}
+          <tr>
+            <td class="txt-left">{{ ativo.nome }}</td>
+            <td class="txt-right">{{ ativo.valor_brl }}</td>
+            <td class="txt-right">{{ ativo.perc_pl }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+        {% endfor %}
+      </table>
+    </div>
+  </div>
+
+  <!-- ===== Running Footer ===== -->
+  <div class="footer">
+    <div class="disclaimer">{{disclaimer_texto}}</div>
+    {% if rodape_institucional %}
+      <div class="institutional">{{rodape_institucional}}</div>
+    {% endif %}
+  </div>
+</body>
+</html>
+"""
+
+# ==============================
+# HELPERS
+# ==============================
+
+def _format_brl(v: float) -> str:
+    try:
+        s = f"{float(v):,.2f}"
+    except Exception:
+        return str(v)
+    inteiro, dec = s.split(".")
+    inteiro = inteiro.replace(",", ".")
+    return f"R$ {inteiro},{dec}"
+
+def _format_pct(v: float) -> str:
+    try:
+        return f"{float(v):.1f}%".replace(".", ",")
+    except Exception:
+        return str(v)
+
+def _pct_to_num(p: Any) -> float:
+    if p is None:
+        return 0.0
+    if isinstance(p, (int, float)):
+        return float(p)
+    s = str(p).strip().replace("%", "").replace(".", "").replace(",", ".")
+    try:
+        return float(s)
+    except Exception:
+        return 0.0
+
+def _img_buf_to_data_url(buf: io.BytesIO) -> str:
+    return "data:image/png;base64," + base64.b64encode(buf.getvalue()).decode("ascii")
+
+def _make_donut(labels: List[str], sizes: List[float], color_map: Dict[str, str]) -> io.BytesIO:
+    colors_list = [color_map.get(lbl, PALETTE[i % len(PALETTE)]) for i, lbl in enumerate(labels)]
+    b = io.BytesIO()
+    fig, ax = plt.subplots(figsize=(3.6, 3.6))
+    ax.pie(
+        sizes,
+        labels=None,
+        startangle=90,
+        counterclock=False,
+        colors=colors_list,
+        wedgeprops={"width": 0.3, "edgecolor": "white"},
     )
-    total_atual = dist_atual["valor_atual"].sum()
-    dist_atual["Percentual"] = dist_atual["valor_atual"] / total_atual * 100
+    ax.axis("equal")
+    plt.tight_layout()
+    fig.savefig(b, format="png", dpi=150, bbox_inches="tight")
+    plt.close(fig)
+    b.seek(0)
+    return b
 
-    # === DISTRIBUIÇÃO SUGERIDA ===
-    dist_sug = (
-        ativos_df.groupby("Classificação")["Novo Valor"]
-                 .sum()
-                 .reset_index()
-                 .rename(columns={"Novo Valor": "valor_sugerido"})
-    )
-    total_sug = dist_sug["valor_sugerido"].sum()
-    dist_sug["Percentual"] = dist_sug["valor_sugerido"] / total_sug * 100
+# ==============================
+# PIPE: DataFrames -> Contexto Jinja2
+# ==============================
+def _build_context(
+    dist_df: pd.DataFrame,
+    modelo_df: pd.DataFrame,
+    resumo_df: pd.DataFrame,
+    sugestao: Dict[str, Any],
+    ativos_df: pd.DataFrame,
+    logo_url: str,
+    disclaimer_texto: str,
+    rodape_institucional: str = "",
+) -> Dict[str, Any]:
+    # Metadados do header
+    cliente = sugestao.get("cliente_nome") or sugestao.get("CLIENTE_NOME") or ""
+    assessor = sugestao.get("nome_assessor") or sugestao.get("NOME_ASSESSOR") or ""
+    liquidez_sugerida = sugestao.get("liquidez_sugerida") or sugestao.get("LIQUIDEZ_SUGERIDA") or 0.0
 
-    # === MAPA DE CORES PELA ORDEM ATUAL ===
-    sorted_classes = dist_atual.sort_values("Percentual", ascending=False)["Classificação"].tolist()
-    for cls in dist_sug["Classificação"]:
-        if cls not in sorted_classes:
-            sorted_classes.append(cls)
-    color_map = {cls: PALETTE[i % len(PALETTE)] for i, cls in enumerate(sorted_classes)}
+    patrimonio_total = 0.0
+    if "valor" in dist_df.columns:
+        try:
+            patrimonio_total = float(
+                dist_df["valor"].astype(str).str.replace(".", "", regex=False).str.replace(",", ".", regex=False).astype(float).sum()
+            )
+        except Exception:
+            patrimonio_total = float(dist_df["valor"].sum())
 
-    # === GRÁFICOS DE DISTRIBUIÇÃO ===
-    c1, c2 = st.columns(2)
-    with c1:
-        st.subheader("Atual")
-        fig_atual = px.pie(
-            dist_atual,
-            names="Classificação",
-            values="valor_atual",
-            hole=0.3,
-            color="Classificação",
-            color_discrete_map=color_map
-        )
-        fig_atual.update_traces(direction="clockwise", textinfo="percent+label", texttemplate="%{percent:.1%}")
-        fig_atual.update_layout(separators=",.")
-        st.plotly_chart(fig_atual, use_container_width=True)
-    with c2:
-        st.subheader("Carteira Sugerida")
-        fig_sug = px.pie(
-            dist_sug,
-            names="Classificação",
-            values="valor_sugerido",
-            hole=0.3,
-            color="Classificação",
-            color_discrete_map=color_map
-        )
-        fig_sug.update_traces(direction="clockwise", textinfo="percent+label", texttemplate="%{percent:.1%}")
-        fig_sug.update_layout(separators=",.")
-        st.plotly_chart(fig_sug, use_container_width=True)
+    # Mapa de cores pela carteira atual
+    dist_sorted = dist_df.copy()
+    if "Percentual" in dist_sorted.columns:
+        dist_sorted = dist_sorted.sort_values(by="Percentual", ascending=False)
+    labels_atual = dist_sorted["Classificação"].astype(str).tolist()
+    sizes_atual = dist_sorted.get("Percentual", pd.Series([0] * len(labels_atual))).astype(float).tolist()
 
-    # === TABELAS ORDENADAS ===
-    t1, t2 = st.columns(2)
-    with t1:
-        st.subheader("Atual")
-        d1 = dist_atual.sort_values("valor_atual", ascending=False).reset_index(drop=True)
-        d1["Valor (R$)"]     = d1["valor_atual"].apply(format_number_br)
-        d1["Percentual (%)"] = d1["Percentual"].apply(lambda x: format_number_br(x) + "%")
-        st.table(d1[["Classificação", "Valor (R$)", "Percentual (%)"]])
-    with t2:
-        st.subheader("Carteira Sugerida")
-        d2 = dist_sug.sort_values("valor_sugerido", ascending=False).reset_index(drop=True)
-        d2["Valor Ideal (R$)"]     = d2["valor_sugerido"].apply(format_number_br)
-        d2["Percentual Ideal (%)"] = d2["Percentual"].apply(lambda x: format_number_br(x) + "%")
-        st.table(d2[["Classificação", "Valor Ideal (R$)", "Percentual Ideal (%)"]])
+    color_map: Dict[str, str] = {}
+    for i, lbl in enumerate(labels_atual):
+        color_map[lbl] = PALETTE[i % len(PALETTE)]
+    for lbl in modelo_df["Classificação"].astype(str).tolist():
+        color_map.setdefault(lbl, PALETTE[len(color_map) % len(PALETTE)])
 
-    # === DIFERENÇAS ENTRE ATUAL E SUGERIDA ===
-    st.subheader("Diferenças entre Atual e Sugerida")
-    resumo = []
-    all_classes = set(dist_atual["Classificação"]).union(dist_sug["Classificação"])
-    for cls in all_classes:
-        pa = dist_atual.loc[dist_atual["Classificação"] == cls, "Percentual"].sum()
-        ps = dist_sug.loc[dist_sug["Classificação"] == cls, "Percentual"].sum()
-        adj = round(ps - pa, 2)
-        resumo.append({
-            "Classificação": cls,
-            "Atual (%)": pa,
-            "Sugerida (%)": ps,
-            "Ajuste (%)": adj,
-            "Ação": "Aumentar" if adj > 0 else ("Reduzir" if adj < 0 else "Inalterado")
+    # Donuts como data URLs
+    buf_atual = _make_donut(labels_atual, sizes_atual, color_map)
+    grafico_atual_src = _img_buf_to_data_url(buf_atual)
+
+    modelo_sorted = modelo_df.copy().sort_values(by="Percentual Ideal", ascending=False)
+    labels_modelo = modelo_sorted["Classificação"].astype(str).tolist()
+    sizes_modelo = modelo_sorted["Percentual Ideal"].astype(float).tolist()
+    buf_modelo = _make_donut(labels_modelo, sizes_modelo, color_map)
+    grafico_proposta_src = _img_buf_to_data_url(buf_modelo)
+
+    # Tabela comparativa central
+    todas_cls = list(dict.fromkeys(list(dist_df["Classificação"].astype(str)) + list(modelo_df["Classificação"].astype(str))))
+    map_atual = dist_df.groupby("Classificação")["Percentual"].sum().to_dict()
+    map_modelo = modelo_df.groupby("Classificação")["Percentual Ideal"].sum().to_dict()
+    comparativo = []
+    for cls in todas_cls:
+        a = float(map_atual.get(cls, 0.0))
+        m = float(map_modelo.get(cls, 0.0))
+        comparativo.append({
+            "classificacao": cls,
+            "atual_perc": _format_pct(a),
+            "atual_perc_num": round(a, 2),
+            "modelo_perc": _format_pct(m),
+            "modelo_perc_num": round(m, 2),
         })
-    res_df = pd.DataFrame(resumo).sort_values("Ajuste (%)", key=lambda c: c.astype(float), ascending=False).reset_index(drop=True)
-    res_disp = res_df.copy()
-    for col in ["Atual (%)", "Sugerida (%)", "Ajuste (%)"]:
-        res_disp[col] = res_disp[col].apply(lambda x: format_number_br(x) + "%")
-    st.table(res_disp)
 
-    # === ATIVOS ALOCADOS E RESGATADOS ===
-    if "Valor Realocado" in ativos_df.columns:
-        st.subheader("Ativos Alocados")
-        alocados = ativos_df[ativos_df["Valor Realocado"] > 0].copy()
-        if not alocados.empty:
-            for c in ["valor_atual", "Novo Valor", "Valor Realocado"]:
-                alocados[c] = alocados[c].astype(float)
-            alocados["Valor Atual (R$)"]     = alocados["valor_atual"].apply(format_number_br)
-            alocados["Novo Valor (R$)"]      = alocados["Novo Valor"].apply(format_number_br)
-            alocados["Valor Realocado (R$)"] = alocados["Valor Realocado"].apply(format_number_br)
-            st.dataframe(alocados[["Classificação", "estrategia", "Valor Atual (R$)", "Valor Realocado (R$)", "Novo Valor (R$)"]],
-                         use_container_width=True, hide_index=True)
-        else:
-            st.markdown("_Nenhum ativo alocado._")
-        st.subheader("Ativos Resgatados")
-        resgatados = ativos_df[ativos_df["Valor Realocado"] < 0].copy()
-        if not resgatados.empty:
-            for c in ["valor_atual", "Novo Valor", "Valor Realocado"]:
-                resgatados[c] = resgatados[c].astype(float)
-            resgatados["Valor Atual (R$)"]     = resgatados["valor_atual"].apply(format_number_br)
-            resgatados["Novo Valor (R$)"]      = resgatados["Novo Valor"].apply(format_number_br)
-            resgatados["Valor Realocado (R$)"] = resgatados["Valor Realocado"].apply(format_number_br)
-            st.dataframe(resgatados[["Classificação", "estrategia", "Valor Atual (R$)", "Valor Realocado (R$)", "Novo Valor (R$)"]],
-                         use_container_width=True, hide_index=True)
-        else:
-            st.markdown("_Nenhum ativo resgatado._")
-    else:
-        st.warning("Coluna 'Valor Realocado' não encontrada. Volte à etapa 4 para simular os ajustes.")
-
-    # === LIQUIDEZ POR FAIXAS ===
-    st.subheader("Liquidez da carteira (R$) por Faixas")
-    def extract_days(liq):
-        m = re.search(r"D\+(\d+)", str(liq))
-        return int(m.group(1)) if m else None
-    ativos_df["days"] = ativos_df["Liquidez"].apply(extract_days)
-    def classify_faixa(row):
-        d = row["days"]
-        liq = str(row["Liquidez"]).lower()
-        if d > 180: return "Acima de D+180"
-        if d > 60:  return "Até D+180"
-        if d > 15:  return "Até D+60"
-        if d > 5:   return "Até D+15"
-        if d > 0:   return "Até D+5"
-        if d == 0 and "à mercado" in liq: return "D+0 (à mercado)"
-        return "D+0"
-    ativos_df["Faixa"] = ativos_df.apply(classify_faixa, axis=1)
-    liq_faixas = ativos_df.groupby("Faixa")["valor_atual"].sum().reset_index()
-
-    # ordem invertida
-    ordem = [
-        "D+0 (à mercado)",
-        "D+0",
-        "Até D+5",
-        "Até D+15",
-        "Até D+60",
-        "Até D+180",
-        "Acima de D+180"
+    # Tabelas laterais
+    dist_fmt = dist_df.copy().sort_values(by="valor", ascending=False)
+    dist_fmt["valor_brl"] = dist_fmt["valor"].apply(_format_brl)
+    dist_fmt["perc_pl"] = dist_fmt["Percentual"].apply(_format_pct)
+    comp_atual = [
+        {"classificacao": r["Classificação"], "valor_brl": r["valor_brl"], "perc_pl": r["perc_pl"]}
+        for _, r in dist_fmt[["Classificação", "valor_brl", "perc_pl"]].iterrows()
     ]
-    liq_faixas["Faixa"] = pd.Categorical(liq_faixas["Faixa"], categories=ordem, ordered=True)
-    liq_faixas = liq_faixas.sort_values("Faixa")
 
-    fig_liq = px.bar(
-        liq_faixas,
-        x="valor_atual",
-        y="Faixa",
-        orientation="h",
-        text="valor_atual"
-    )
-    fig_liq.update_traces(texttemplate="%{text:,.2f}", textposition="outside")
-    fig_liq.update_layout(
-        #title="Liquidez da carteira (R$) por Faixas",
-        separators=".,",
-        yaxis=dict(categoryorder="array", categoryarray=ordem)
-    )
-    st.plotly_chart(fig_liq, use_container_width=True)
+    modelo_fmt = modelo_df.copy().rename(columns={"Percentual Ideal": "Percentual", "Valor Ideal (R$)": "valor"})
+    if "valor" in modelo_fmt.columns:
+        modelo_fmt = modelo_fmt.sort_values(by="valor", ascending=False)
+        modelo_fmt["valor_brl"] = modelo_fmt["valor"].apply(_format_brl)
+    else:
+        modelo_fmt["valor_brl"] = "—"
+    modelo_fmt["perc_pl"] = modelo_fmt["Percentual"].apply(_format_pct)
+    comp_proposta = [
+        {"classificacao": r["Classificação"], "valor_brl": r["valor_brl"], "perc_pl": r["perc_pl"]}
+        for _, r in modelo_fmt[["Classificação", "valor_brl", "perc_pl"]].iterrows()
+    ]
 
-    # === GERAÇÃO E DOWNLOAD DO PDF ===
-    modelo_raw = get_modelo_carteira(carteira_modelo)
-    # alteração realizada aqui: trata dict de escalares criando lista com um item
-    if isinstance(modelo_raw, dict):
-        modelo_df = pd.DataFrame([modelo_raw])  # alteração realizada aqui
-    else:
-        modelo_df = modelo_raw.copy()          # alteração realizada aqui
-    percent_cols = [c for c in modelo_df.columns if "percentual" in c.lower()]
-    if percent_cols:
-        modelo_df = modelo_df.rename(columns={percent_cols[0]: "Percentual Ideal"})
-    else:
-        modelo_df = dist_sug.rename(columns={"Percentual": "Percentual Ideal", "valor_sugerido": "valor"})
-    dist_df = dist_atual.rename(columns={"valor_atual": "valor"})
-    pdf_path = generate_pdf(
+    # Diferenças (opcional)
+    diferencas: List[Dict[str, str]] = []
+    if isinstance(resumo_df, pd.DataFrame) and not resumo_df.empty:
+        def pick(colopts: List[str]) -> Optional[str]:
+            for c in resumo_df.columns:
+                if c.lower() in colopts:
+                    return c
+            return None
+
+        col_cls = pick(["classificação", "classificacao"]) or "Classificação"
+        col_atual = pick(["% do pl atual (%)", "atual (%)", "atual"]) or "Atual (%)"
+        col_sug = pick(["% do pl sugerida (%)", "sugerida (%)", "sugerida"]) or "Sugerida (%)"
+        col_adj = pick(["ajuste (%)", "ajuste"]) or "Ajuste (%)"
+        col_acao = pick(["ação", "acao"]) or "Ação"
+
+        for _, r in resumo_df.iterrows():
+            diferencas.append({
+                "classificacao": str(r.get(col_cls, "")),
+                "atual_perc": str(r.get(col_atual, "")),
+                "sugerida_perc": str(r.get(col_sug, "")),
+                "ajuste_perc": str(r.get(col_adj, "")),
+                "acao": str(r.get(col_acao, "")),
+            })
+
+    # Sugestão detalhada
+    sugestao_detalhada: List[Dict[str, Any]] = []
+    if isinstance(ativos_df, pd.DataFrame) and not ativos_df.empty:
+        df = ativos_df.copy()
+        try:
+            df["Novo Valor"] = df["Novo Valor"].astype(str).str.replace(".", "", regex=False).str.replace(",", ".", regex=False).astype(float)
+        except Exception:
+            pass
+        total_sug = float(df["Novo Valor"].fillna(0).sum())
+
+        for cls, g in df.groupby("Classificação"):
+            soma = float(g["Novo Valor"].fillna(0).sum())
+            grupo = {
+                "classificacao": str(cls),
+                "total_brl": _format_brl(soma),
+                "total_perc": _format_pct((soma / total_sug * 100) if total_sug else 0.0),
+                "ativos": []
+            }
+            g2 = g.sort_values("Novo Valor", ascending=False)
+            for _, r in g2.iterrows():
+                nome = str(r.get("estrategia", r.get("Ativo", ""))).replace("\uFFFD", "").replace("\xa0", " ").strip()
+                valor = float(r.get("Novo Valor", 0.0))
+                if "% PL" in g2.columns:
+                    perc_pl_str = str(r["% PL"])
+                else:
+                    perc_pl_str = _format_pct((valor / total_sug * 100) if total_sug else 0.0)
+                grupo["ativos"].append({
+                    "nome": nome,
+                    "valor_brl": _format_brl(valor),
+                    "perc_pl": perc_pl_str
+                })
+            sugestao_detalhada.append(grupo)
+
+    contexto = {
+        # Header
+        "logo_url": logo_url,
+        "cliente_nome": cliente,
+        "nome_assessor": assessor,
+        "patrimonio_total_brl": _format_brl(patrimonio_total),
+        # Gráficos
+        "grafico_atual_src": grafico_atual_src,
+        "grafico_proposta_src": grafico_proposta_src,
+        # Pág.1
+        "comparativo": comparativo,
+        "comp_atual": comp_atual,
+        "comp_proposta": comp_proposta,
+        "liquidez_sugerida_brl": _format_brl(liquidez_sugerida),
+        # Pág.2
+        "diferencas": diferencas,
+        "sugestao_detalhada": sugestao_detalhada,
+        # Footer
+        "disclaimer_texto": disclaimer_texto,
+        "rodape_institucional": rodape_institucional,
+    }
+    return contexto
+
+# ==============================
+# RENDER HTML -> PDF
+# ==============================
+def _render_html(template_str: str, context: Dict[str, Any]) -> str:
+    env = Environment(
+        loader=BaseLoader(),
+        autoescape=select_autoescape(["html", "xml"]),
+        trim_blocks=True,
+        lstrip_blocks=True,
+    )
+    tpl = env.from_string(template_str)
+    return tpl.render(**context)
+
+def _html_to_pdf_bytes(html: str, base_url: str = ".") -> bytes:
+    if USE_WEASYPRINT:
+        return HTML(string=html, base_url=base_url).write_pdf()
+    raise RuntimeError("WeasyPrint não disponível. Instale dependências do Cairo/Pango.")
+
+# ==============================
+# FUNÇÃO PÚBLICA
+# ==============================
+def generate_pdf(
+    dist_df: pd.DataFrame,
+    modelo_df: pd.DataFrame,
+    resumo_df: pd.DataFrame,
+    sugestao: Optional[Dict[str, Any]] = None,
+    ativos_df: Optional[pd.DataFrame] = None,
+    output_path: str = "relatorio_carteira.pdf",
+    logo_url: str = "",
+    disclaimer_texto: str = "",
+    rodape_institucional: str = "",
+    **kwargs,  # <- # alteração realizada aqui: aceita extras como cliente_nome=, nome_assessor=, etc.
+) -> str:
+    """
+    Gera o PDF final no caminho `output_path`. Retorna o caminho gerado.
+
+    Compatível com chamadas antigas que passam, por exemplo:
+      generate_pdf(..., cliente_nome="...", nome_assessor="...", liquidez_sugerida=...)
+    ou com chamadas que remetem um dict `sugestao`.
+    """
+    if sugestao is None:
+        sugestao = {}
+    # Merge de kwargs específicos dentro de `sugestao`  # alteração realizada aqui
+    for k_alias, k_std in [
+        ("cliente_nome", "cliente_nome"),
+        ("CLIENTE_NOME", "CLIENTE_NOME"),
+        ("nome_assessor", "nome_assessor"),
+        ("NOME_ASSESSOR", "NOME_ASSESSOR"),
+        ("liquidez_sugerida", "liquidez_sugerida"),
+        ("LIQUIDEZ_SUGERIDA", "LIQUIDEZ_SUGERIDA"),
+    ]:
+        if k_alias in kwargs and kwargs[k_alias] is not None:
+            sugestao[k_std] = kwargs[k_alias]
+
+    if ativos_df is None:
+        ativos_df = pd.DataFrame()
+
+    contexto = _build_context(
         dist_df=dist_df,
         modelo_df=modelo_df,
-        resumo_df=res_df,
+        resumo_df=resumo_df,
         sugestao=sugestao,
-        ativos_df=ativos_df, 
-        cliente_nome=cliente_nome,
-        nome_assessor=nome_assessor,
+        ativos_df=ativos_df,
+        logo_url=logo_url,
+        disclaimer_texto=disclaimer_texto,
+        rodape_institucional=rodape_institucional,
     )
-    with open(pdf_path, "rb") as f:
-        pdf_bytes = f.read()
-    st.download_button("Gerar e Baixar PDF", pdf_bytes, "relatorio_carteira.pdf", "application/pdf")
-
-    # === DOWNLOAD DO EXCEL ===
-    # Prepara dataframes para exportação por classificação
-    excel1 = ativos_df.copy()
-    excel1["Valor Atual (R$)"] = excel1["valor_atual"].apply(format_number_br)
-    # percentual por ativo em relação ao total atual
-    total_atual = excel1["valor_atual"].sum()
-    excel1["Percentual (%)"] = excel1["valor_atual"].apply(lambda x: format_number_br(x/total_atual*100) + "%")  # alteração: percentual por linha
-    excel1_export = excel1[["Classificação", "estrategia", "Liquidez", "Valor Atual (R$)", "Percentual (%)"]]  # alteração: inclui percentual
-    excel1_export = excel1_export.sort_values("Classificação")  # alteração: ordena por classificação
-
-    excel2 = ativos_df.copy()
-    excel2["Valor Sugerido (R$)"] = excel2["Novo Valor"].astype(float).apply(format_number_br)
-    # percentual por ativo em relação ao total sugerido
-    total_sug = excel2["Novo Valor"].astype(float).sum()
-    excel2["Percentual Ideal (%)"] = excel2["Novo Valor"].astype(float).apply(lambda x: format_number_br(x/total_sug*100) + "%")  # alteração: percentual por linha
-    excel2_export = excel2[["Classificação", "estrategia", "Liquidez", "Valor Sugerido (R$)", "Percentual Ideal (%)"]]  # alteração: inclui percentual
-    excel2_export = excel2_export.sort_values("Classificação")  # alteração: ordena por classificação
-
-    output = io.BytesIO()
-    with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-        excel1_export.to_excel(writer, sheet_name='Carteira Inicial', index=False)
-        excel2_export.to_excel(writer, sheet_name='Carteira Sugerida', index=False)
-    output.seek(0)
-    st.download_button(
-        label="Baixar Carteiras (Excel)",
-        data=output,
-        file_name="carteiras.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-    )
-
-
-    # botão voltar
-    if st.button("Voltar para Sugestões"):
-        st.session_state.etapa = 4
-        st.rerun()
+    html = _render_html(TEMPLATE_HTML, contexto)
+    pdf_bytes = _html_to_pdf_bytes(html)
+    with open(output_path, "wb") as f:
+        f.write(pdf_bytes)
+    return output_path
