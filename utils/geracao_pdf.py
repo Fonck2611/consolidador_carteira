@@ -1,6 +1,8 @@
 # utils/geracao_pdf.py
-# Gerador de PDF com HTML (Lovable) + Jinja2 + WeasyPrint
-# Dep.: pip install weasyprint Jinja2 matplotlib pillow
+# Gerador de PDF com HTML (Lovable) + Jinja2 + WeasyPrint, com fallback Playwright/Chromium
+# Deps:
+#   pip install jinja2 weasyprint matplotlib pillow playwright
+#   python -m playwright install chromium   # alteração realizada aqui
 
 import io
 import os
@@ -11,15 +13,15 @@ import matplotlib.pyplot as plt
 
 from jinja2 import Environment, BaseLoader, select_autoescape
 
-# ====== WeasyPrint ======
+# ====== WeasyPrint (opcional) ======
 USE_WEASYPRINT = True
 try:
     if USE_WEASYPRINT:
         from weasyprint import HTML
 except Exception:
-    USE_WEASYPRINT = False
+    USE_WEASYPRINT = False  # sem libs nativas (Cairo/Pango), deixamos para o fallback
 
-# ====== Paleta ======
+# ====== Paleta (sua paleta existente) ======
 try:
     from utils.cores import PALETTE
 except Exception:
@@ -534,9 +536,27 @@ def _render_html(template_str: str, context: Dict[str, Any]) -> str:
     return tpl.render(**context)
 
 def _html_to_pdf_bytes(html: str, base_url: str = ".") -> bytes:
+    # 1) Tenta WeasyPrint primeiro
     if USE_WEASYPRINT:
-        return HTML(string=html, base_url=base_url).write_pdf()
-    raise RuntimeError("WeasyPrint não disponível. Instale dependências do Cairo/Pango.")
+        try:
+            return HTML(string=html, base_url=base_url).write_pdf()
+        except Exception:
+            pass  # se falhar, cai no fallback abaixo  # alteração realizada aqui
+
+    # 2) Fallback: Playwright/Chromium headless  # alteração realizada aqui
+    from playwright.sync_api import sync_playwright
+    with sync_playwright() as p:
+        browser = p.chromium.launch()  # headless por padrão
+        page = browser.new_page()
+        # base_url permite resolver caminhos relativos de imagens se você usar file://
+        page.set_content(html, wait_until="load", base_url=base_url)
+        pdf_bytes = page.pdf(
+            format="A4",
+            margin={"top": "20mm", "right": "15mm", "bottom": "20mm", "left": "15mm"},
+            print_background=True,
+        )
+        browser.close()
+        return pdf_bytes
 
 # ==============================
 # FUNÇÃO PÚBLICA
@@ -551,7 +571,7 @@ def generate_pdf(
     logo_url: str = "",
     disclaimer_texto: str = "",
     rodape_institucional: str = "",
-    **kwargs,  # <- # alteração realizada aqui: aceita extras como cliente_nome=, nome_assessor=, etc.
+    **kwargs,  # aceita extras como cliente_nome=, nome_assessor=, liquidez_sugerida=
 ) -> str:
     """
     Gera o PDF final no caminho `output_path`. Retorna o caminho gerado.
@@ -562,7 +582,7 @@ def generate_pdf(
     """
     if sugestao is None:
         sugestao = {}
-    # Merge de kwargs específicos dentro de `sugestao`  # alteração realizada aqui
+    # Merge kwargs dentro de `sugestao`  # alteração realizada aqui
     for k_alias, k_std in [
         ("cliente_nome", "cliente_nome"),
         ("CLIENTE_NOME", "CLIENTE_NOME"),
@@ -588,7 +608,7 @@ def generate_pdf(
         rodape_institucional=rodape_institucional,
     )
     html = _render_html(TEMPLATE_HTML, contexto)
-    pdf_bytes = _html_to_pdf_bytes(html)
+    pdf_bytes = _html_to_pdf_bytes(html)  # agora tenta WeasyPrint e cai no Playwright se necessário
     with open(output_path, "wb") as f:
         f.write(pdf_bytes)
     return output_path
