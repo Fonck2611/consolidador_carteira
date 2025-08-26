@@ -11,3 +11,7 @@ streamlit
 datetime
 pathlib
 XlsxWriter
+
+# novo para PDF em HTML
+jinja2
+weasyprint
