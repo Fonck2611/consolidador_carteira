@@ -10,15 +10,22 @@ import io
 import os
 import matplotlib.pyplot as plt
 from utils.cores import PALETTE
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, Frame
 import unicodedata
 
-
-
-
-patrimonio_total = 0.0  # será atualizado na função generate_pdf
+# =========================
+# Estado global simples
+# =========================
+patrimonio_total = 0.0
 CLIENTE_NOME = ""
 NOME_ASSESSOR = ""
+
+def _format_number_br(valor: float) -> str:
+    try:
+        v = float(valor)
+    except Exception:
+        return str(valor)
+    s = f"{v:,.2f}"
+    return s.replace(",", "v").replace(".", ",").replace("v", ".")
 
 def draw_header(canvas, doc):
     canvas.saveState()
@@ -31,7 +38,9 @@ def draw_header(canvas, doc):
 
     # Logo
     try:
-        logo_path = os.path.join(os.path.dirname(__file__), "Logo_Criteria_Financial_Group_Cor_V2_RGB-01.png")
+        # alteração realizada aqui: caminho robusto relativo a este arquivo
+        base_dir = os.path.dirname(__file__)
+        logo_path = os.path.join(base_dir, "Logo_Criteria_Financial_Group_Cor_V2_RGB-01.png")
         logo = ImageReader(logo_path)
         canvas.drawImage(logo, x=6, y=page_height - 55, width=125.6, height=60, mask='auto')
     except Exception as e:
@@ -45,7 +54,7 @@ def draw_header(canvas, doc):
     # Bloco de informações do cliente
     canvas.setFont("Helvetica-Bold", 12)
     canvas.setFillColor(colors.black)
-    canvas.drawString(10, page_height - 80, CLIENTE_NOME.upper())
+    canvas.drawString(10, page_height - 80, (CLIENTE_NOME or "").upper())
 
     canvas.setFont("Helvetica-Bold", 10)
     right_base_y = page_height - 60
@@ -56,8 +65,12 @@ def draw_header(canvas, doc):
 
     canvas.setFont("Helvetica", 10)
     canvas.setFillColor(colors.black)
-    canvas.drawRightString(page_width - 10, right_base_y - 1 * info_spacing, NOME_ASSESSOR)
-    canvas.drawRightString(page_width - 10, right_base_y - 2.5 * info_spacing, f"R$ {patrimonio_total:,.2f}".replace(",", "v").replace(".", ",").replace("v", "."))
+    canvas.drawRightString(page_width - 10, right_base_y - 1 * info_spacing, NOME_ASSESSOR or "")
+    canvas.drawRightString(
+        page_width - 10,
+        right_base_y - 2.5 * info_spacing,
+        f"R$ {_format_number_br(patrimonio_total)}"
+    )
 
     # Linha final separadora
     canvas.setStrokeColor(colors.black)
@@ -80,19 +93,19 @@ def draw_footer(canvas, doc):
         textColor=colors.black,
         alignment=TA_CENTER,
         spaceBefore=2,
-        spaceAfter= 2
+        spaceAfter=2
     )
 
     disclaimer = (
-        "Disclaimers: A Criteria Invest – Agente Autônomo de Investimentos Ltda. é uma empresa de agentes autônomos de investimento devidamente registrada na Comissão de Valores Mobiliários, na forma da Instrução "
-        "Normativa n. 434/06. A Criteria Invest – Agente Autônomo de Investimentos Ltda. atua no mercado financeiro através da XP Investimentos CCTVM S/A, realizando o atendimento de pessoas físicas e jurídicas (não "
-        "institucionais). Na forma da legislação da CVM, o agente autônomo de investimento não pode administrar ou gerir o patrimônio de investidores. O agente autônomo é um intermediário e depende da autorização "
-        "prévia do cliente para realizar operações no mercado financeiro. Esta mensagem, incluindo os seus anexos, contém informações confidenciais destinadas a indivíduo e propósito específicos, sendo protegida por lei. "
-        "Caso você não seja a pessoa a quem foi dirigida a mensagem, deve apagá-la. É terminantemente proibida a utilização, acesso, cópia ou divulgação não autorizada das informações presentes nesta mensagem. As "
-        "informações contidas nesta mensagem e em seus anexos são de responsabilidade de seu autor, não representando necessariamente ideias, opiniões, pensamentos ou qualquer forma de posicionamento por parte "
-        "da Criteria Invest. – Agente Autônomo de Investimentos Ltda. O investimento em ações é um investimento de risco e rentabilidade passada não é garantia de rentabilidade futura. Na realização de operações com "
-        "derivativos existe a possibilidade de perdas superiores aos valores investidos, podendo resultar em significativas perdas patrimoniais. Para informações e dúvidas, favor contatar seu operador. Para reclamações, "
-        "favor contatar a Ouvidoria da XP Investimentos no telefone nº 0800-722-3710."
+        "Disclaimers: A Criteria Invest – Agente Autônomo de Investimentos Ltda. é uma empresa de agentes autônomos de investimento devidamente registrada na Comissão de Valores Mobiliários, "
+        "na forma da Instrução Normativa n. 434/06. A Criteria Invest – Agente Autônomo de Investimentos Ltda. atua no mercado financeiro através da XP Investimentos CCTVM S/A, realizando o atendimento "
+        "de pessoas físicas e jurídicas (não institucionais). Na forma da legislação da CVM, o agente autônomo de investimento não pode administrar ou gerir o patrimônio de investidores. O agente autônomo "
+        "é um intermediário e depende da autorização prévia do cliente para realizar operações no mercado financeiro. Esta mensagem, incluindo os seus anexos, contém informações confidenciais destinadas a "
+        "indivíduo e propósito específicos, sendo protegida por lei. Caso você não seja a pessoa a quem foi dirigida a mensagem, deve apagá-la. É terminantemente proibida a utilização, acesso, cópia ou divulgação "
+        "não autorizada das informações presentes nesta mensagem. As informações contidas nesta mensagem e em seus anexos são de responsabilidade de seu autor, não representando necessariamente ideias, opiniões, "
+        "pensamentos ou qualquer forma de posicionamento por parte da Criteria Invest. – Agente Autônomo de Investimentos Ltda. O investimento em ações é um investimento de risco e rentabilidade passada não é garantia "
+        "de rentabilidade futura. Na realização de operações com derivativos existe a possibilidade de perdas superiores aos valores investidos, podendo resultar em significativas perdas patrimoniais. Para informações "
+        "e dúvidas, favor contatar seu operador. Para reclamações, favor contatar a Ouvidoria da XP Investimentos no telefone nº 0800-722-3710."
     )
 
     disclaimer_paragraph = Paragraph(disclaimer, footer_style)
@@ -102,24 +115,46 @@ def draw_footer(canvas, doc):
 
     canvas.restoreState()
 
-def format_number_br(valor):
-    return f"{valor:,.2f}".replace(",", "v").replace(".", ",").replace("v", ".")
-
 def generate_pdf(
     dist_df: pd.DataFrame,
     modelo_df: pd.DataFrame,
     resumo_df: pd.DataFrame,
     sugestao: dict,
     ativos_df: pd.DataFrame,
-    output_path: str = "relatorio_carteira.pdf",
-    cliente_nome: str = CLIENTE_NOME,
-    nome_assessor: str = NOME_ASSESSOR,
-    ):
-    raw_modelo_df = modelo_df.copy()
+    cliente_nome: str = "",
+    nome_assessor: str = "",
+) -> bytes:
+    """
+    Gera o PDF e retorna os bytes do arquivo (sem gravar em disco).
+    """
+    # =========================
+    # Normalizações de entrada
+    # =========================
+    df_dist = dist_df.copy()
+    if "valor" not in df_dist.columns and "valor_atual" in df_dist.columns:
+        df_dist = df_dist.rename(columns={"valor_atual": "valor"})  # alteração realizada aqui
+
+    # garante percentuais na dist atual
+    if "Percentual" not in df_dist.columns:
+        total_val = pd.to_numeric(df_dist["valor"], errors="coerce").fillna(0.0).sum()
+        df_dist["Percentual"] = pd.to_numeric(df_dist["valor"], errors="coerce").fillna(0.0) / total_val * 100 if total_val else 0.0  # alteração realizada aqui
+
+    df_modelo = modelo_df.copy()
+    # aceita "Percentual Ideal" ou tenta achar similar
+    if "Percentual Ideal" not in df_modelo.columns:
+        possibles = [c for c in df_modelo.columns if "percentual" in c.lower()]
+        if possibles:
+            df_modelo = df_modelo.rename(columns={possibles[0]: "Percentual Ideal"})  # alteração realizada aqui
+        else:
+            raise ValueError("modelo_df precisa conter a coluna 'Percentual Ideal'.")
+
+    # =========================
+    # Estado global para header
+    # =========================
     global patrimonio_total, CLIENTE_NOME, NOME_ASSESSOR
     CLIENTE_NOME = cliente_nome
     NOME_ASSESSOR = nome_assessor
-    patrimonio_total = dist_df["valor"].sum() if "valor" in dist_df.columns else 0.0
+    patrimonio_total = pd.to_numeric(df_dist["valor"], errors="coerce").fillna(0.0).sum()
 
     styles = getSampleStyleSheet()
     elems = []
@@ -127,8 +162,12 @@ def generate_pdf(
     elems.append(Paragraph("Proposta de Alocação de Carteira", styles["Title"]))
     elems.append(Spacer(1, 12))
 
+    # =========================
+    # Documento em memória
+    # =========================
+    output = io.BytesIO()  # alteração realizada aqui: gerar em buffer
     doc = SimpleDocTemplate(
-        output_path,
+        output,
         pagesize=A4,
         topMargin=130,
         bottomMargin=60,
@@ -136,6 +175,9 @@ def generate_pdf(
         rightMargin=36
     )
 
+    # =========================
+    # Gráficos donut (matplotlib)
+    # =========================
     def make_doughnut_atual(df, percent_col):
         sorted_df = df.sort_values(by=percent_col, ascending=False).reset_index(drop=True)
         labels = sorted_df["Classificação"].tolist()
@@ -196,20 +238,39 @@ def generate_pdf(
         buf.seek(0)
         return buf
 
-    def format_percent(val):
-        return f"{val:.1f}".replace(".", ",") + "%"
+    buf1, color_map = make_doughnut_atual(df_dist, 'Percentual')
+    buf2 = make_doughnut_modelo(df_modelo, 'Percentual Ideal', color_map)
+
+    # =========================
+    # Tabela comparativa central
+    # =========================
+    comp_data = [["Atual (%)", "Classificação", "Modelo (%)"]]
+    header_style = ParagraphStyle(
+        name="HeaderSmall",
+        parent=styles["Normal"],
+        alignment=TA_CENTER,
+        fontSize=8,
+        leading=8,
+        textColor=colors.whitesmoke
+    )
+    comp_data[0] = [Paragraph(c, header_style) for c in comp_data[0]]
+
+    # une classes e ordena por atual
+    temp_df = pd.DataFrame({
+        "Classificação": list(dict.fromkeys(list(df_dist["Classificação"]) + list(df_modelo["Classificação"])))
+    })
+    temp_df["Atual"] = temp_df["Classificação"].map(lambda x: df_dist.loc[df_dist["Classificação"] == x, "Percentual"].sum())
+    temp_df["Modelo"] = temp_df["Classificação"].map(lambda x: df_modelo.loc[df_modelo["Classificação"] == x, "Percentual Ideal"].sum())
+    temp_df = temp_df.fillna(0.0).sort_values(by="Atual", ascending=False).reset_index(drop=True)
 
     def render_color_bar(color: str, align: str = "left", value: float = 0.0):
-        percent = format_percent(value)
+        val = float(value) if pd.notna(value) else 0.0
+        percent = f"{val:.1f}".replace(".", ",") + "%"  # alteração realizada aqui
 
-        bar = InnerTable(
-            [[" "]],
-            colWidths=4,
-            rowHeights=12
-        )
+        bar = InnerTable([[" "]], colWidths=4, rowHeights=12)
         bar.setStyle(TableStyle([
-            ("BACKGROUND", (0, 0), (-1, -1), color),
-            ("BOX", (0, 0), (-1, -1), 0, color),
+            ("BACKGROUND", (0, 0), (-1, -1), colors.HexColor(color) if isinstance(color, str) else color),
+            ("BOX", (0, 0), (-1, -1), 0, colors.white),
         ]))
 
         small_text_style = ParagraphStyle(
@@ -242,45 +303,28 @@ def generate_pdf(
                 ]
             )
 
-
-    buf1, color_map = make_doughnut_atual(dist_df, 'valor')
-    buf2 = make_doughnut_modelo(modelo_df, 'Percentual Ideal', color_map)
-
-    comp_data = [["Atual (%)", "Classificação", "Modelo (%)"]]
-
-    header_style = ParagraphStyle(
-        name="HeaderSmall",
+    comp_rows = []
+    small_center_style = ParagraphStyle(
+        "SmallCenter",
         parent=styles["Normal"],
         alignment=TA_CENTER,
-        fontSize=8,
-        leading=8,  # diminui a altura da linha
-        textColor=colors.whitesmoke
+        fontSize=7,
+        wordWrap='CJK',
+        keepAll=True
     )
-    comp_data[0] = [Paragraph(c, header_style) for c in comp_data[0]]
-
-    temp_df = pd.DataFrame({
-        "Classificação": list(dict.fromkeys(list(dist_df["Classificação"]) + list(modelo_df["Classificação"])))
-    })
-    temp_df["Atual"] = temp_df["Classificação"].map(lambda x: dist_df.loc[dist_df["Classificação"] == x, "Percentual"].sum())
-    temp_df["Modelo"] = temp_df["Classificação"].map(lambda x: modelo_df.loc[modelo_df["Classificação"] == x, "Percentual Ideal"].sum())
-    temp_df = temp_df.sort_values(by="Atual", ascending=False).reset_index(drop=True)
 
     for _, row in temp_df.iterrows():
         color = color_map.get(row["Classificação"], "#000000")
         bar_left = render_color_bar(color, align="left", value=row["Atual"])
         bar_right = render_color_bar(color, align="right", value=row["Modelo"])
-        small_center_style = ParagraphStyle(
-            "SmallCenter",
-            parent=styles["Normal"],
-            alignment=TA_CENTER,
-            fontSize=7,
-            wordWrap='CJK',
-            keepAll=True
-        )
-        p_cls = Paragraph(row["Classificação"], small_center_style)
-        comp_data.append([bar_left, p_cls, bar_right])
+        p_cls = Paragraph(str(row["Classificação"]), small_center_style)
+        comp_rows.append([bar_left, p_cls, bar_right])
 
-    comp_tbl = Table(comp_data, colWidths=[55, 90, 55], hAlign='CENTER')
+    comp_tbl = Table(
+        [["Atual (%)", "Classificação", "Modelo (%)"]] + comp_rows,
+        colWidths=[55, 90, 55],
+        hAlign='CENTER'
+    )
     comp_tbl.setStyle(TableStyle([
         ('BACKGROUND', (0, 0), (-1, -1), colors.whitesmoke),
         ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
@@ -302,189 +346,136 @@ def generate_pdf(
         textTransform='uppercase'
     )
 
-    # Função auxiliar para criar o título com traço
     def titulo_com_traco(texto):
         return Table(
             [
                 [Paragraph(texto, subheader_style)],
-                [Table(
-                    [[""]],
-                    colWidths="100%",
-                    style=[("LINEBELOW", (0, 0), (-1, -1), 0, colors.black)]
-                )]
+                [Table([[""]], colWidths="100%", style=[("LINEBELOW", (0, 0), (-1, -1), 0, colors.black)])]
             ],
             hAlign='CENTER',
-            style=[("BOTTOMPADDING", (0, 0), (-1, -1), 0),
-                    ("TOPPADDING", (0, 1), (-1, 1), -12),]
+            style=[("BOTTOMPADDING", (0, 0), (-1, -1), 0), ("TOPPADDING", (0, 1), (-1, 1), -12)]
         )
 
-    # Gráfico Atual com título e traço
     grafico_atual = Table(
-        [
-            [titulo_com_traco("CARTEIRA ATUAL")],
-            [Image(buf1, width=130, height=130)]
-        ],
+        [[titulo_com_traco("CARTEIRA ATUAL")], [Image(buf1, width=130, height=130)]],
         rowHeights=[19, None],
         hAlign='CENTER'
     )
-
-    # Gráfico Modelo com título e traço
     grafico_sugerido = Table(
-        [
-            [titulo_com_traco("CARTEIRA PROPOSTA")],
-            [Image(buf2, width=130, height=130)]
-        ],
+        [[titulo_com_traco("CARTEIRA PROPOSTA")], [Image(buf2, width=130, height=130)]],
         rowHeights=[19, None],
         hAlign='CENTER'
     )
 
-    # Composição final
     elems.append(
         Table(
             [[grafico_atual, comp_tbl, grafico_sugerido]],
             colWidths=[155, 230, 155],
             hAlign='CENTER',
-            style=[
-                ('VALIGN', (0, 0), (-1, -1), 'TOP'),
-                ('ALIGN', (0, 0), (-1, -1), 'CENTER')
-            ]
+            style=[('VALIGN', (0, 0), (-1, -1), 'TOP'), ('ALIGN', (0, 0), (-1, -1), 'CENTER')]
         )
     )
-    elems.append(Spacer(1, 30))  # espaçamento aumentado
+    elems.append(Spacer(1, 30))
 
-    # Tabelas detalhadas
+    # =========================
+    # Tabelas Carteira Atual x Proposta
+    # =========================
+    dist_fmt = df_dist.copy().sort_values(by="valor", ascending=False)
+    dist_fmt["valor"] = pd.to_numeric(dist_fmt["valor"], errors="coerce").fillna(0.0)
+    dist_fmt["Valor"] = dist_fmt["valor"].apply(_format_number_br)
+    dist_fmt["% PL"] = dist_fmt["Percentual"].apply(lambda x: _format_number_br(x) + "%")
+    dist_fmt = dist_fmt.rename(columns={"Classificação": "Classificação"})[["Classificação", "Valor", "% PL"]]
 
-    dist_df = dist_df.copy().sort_values(by="valor", ascending=False)
-    dist_df["valor"] = dist_df["valor"].apply(format_number_br)
-    dist_df["Percentual"] = dist_df["Percentual"].apply(lambda x: format_number_br(x) + "%")
-    dist_df = dist_df.rename(
-        columns={
-        "Classificação": "Classificação",
-        "valor":        "Valor",
-        "Percentual":   "% PL"
-        }
-    )
-    dist_df = dist_df[["Classificação", "Valor", "% PL"]]
+    modelo_fmt = df_modelo.copy()
+    # se houver coluna "Valor Ideal (R$)" usa como valor/sort; senão apenas exibe por percentual
+    if "Valor Ideal (R$)" in modelo_fmt.columns:
+        modelo_fmt["valor"] = pd.to_numeric(modelo_fmt["Valor Ideal (R$)"], errors="coerce").fillna(0.0)
+    else:
+        modelo_fmt["valor"] = 0.0
+    modelo_fmt = modelo_fmt.sort_values(by="valor", ascending=False)
+    modelo_fmt["Valor"] = modelo_fmt["valor"].apply(_format_number_br)
+    modelo_fmt["% PL"] = modelo_fmt["Percentual Ideal"].apply(lambda x: _format_number_br(x) + "%")
+    modelo_fmt = modelo_fmt.rename(columns={"Classificação": "Classificação"})[["Classificação", "Valor", "% PL"]]
 
-    modelo_df = modelo_df.copy().rename(columns={"Percentual Ideal": "Percentual", "Valor Ideal (R$)": "valor"})
-    modelo_df = modelo_df.sort_values(by="valor", ascending=False)
-    modelo_df["valor"] = modelo_df["valor"].apply(format_number_br)
-    modelo_df["Percentual"] = modelo_df["Percentual"].apply(lambda x: format_number_br(x) + "%")
-    modelo_df = modelo_df.rename(
-        columns={
-        "Classificação": "Classificação",
-        "valor":        "Valor",
-        "Percentual":   "% PL"
-        }
-    )
-    modelo_df = modelo_df[["Classificação", "Valor", "% PL"]]
-
-    data1 = [dist_df.columns.tolist()] + dist_df.values.tolist()
-    data2 = [modelo_df.columns.tolist()] + modelo_df.values.tolist()
+    data1 = [dist_fmt.columns.tolist()] + dist_fmt.values.tolist()
+    data2 = [modelo_fmt.columns.tolist()] + modelo_fmt.values.tolist()
     tbl1 = Table(data1)
     tbl2 = Table(data2)
 
     grid_style = ('GRID', (0, 0), (-1, -1), 0.5, colors.black)
-    header_style = ('BACKGROUND', (0, 0), (-1, 0), colors.gray)
+    header_style_tbl = ('BACKGROUND', (0, 0), (-1, 0), colors.gray)
     textcolor_style = ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke)
     base_align = ('ALIGN', (0, 0), (-1, -1), 'CENTER')
     valign_top = ('VALIGN', (0, 0), (-1, -1), 'TOP')
-    tbl_styles = [header_style, textcolor_style, grid_style, base_align, valign_top]
+    tbl_styles = [header_style_tbl, textcolor_style, grid_style, base_align, valign_top]
     tbl1.setStyle(TableStyle(tbl_styles))
     tbl2.setStyle(TableStyle(tbl_styles))
 
-    # Títulos centralizados horizontalmente com as tabelas
-    title_style_centered = ParagraphStyle(
-        name="CenteredTitle",
-        parent=styles["Heading2"],
-        alignment=TA_CENTER
-    )
-    
+    title_style_centered = ParagraphStyle(name="CenteredTitle", parent=styles["Heading2"], alignment=TA_CENTER)
     tbl_titles = Table(
-        [[
-            Paragraph("Carteira Atual", title_style_centered),
-            Paragraph("Carteira Proposta", title_style_centered)
-        ]],
+        [[Paragraph("Carteira Atual", title_style_centered), Paragraph("Carteira Proposta", title_style_centered)]],
         colWidths=[doc.width / 2, doc.width / 2],
         hAlign='CENTER'
     )
-    
-    tbl_both = Table(
-        [[tbl1, tbl2]],
-        colWidths=[doc.width / 2, doc.width / 2],
-        hAlign='CENTER',
-        style=[('VALIGN', (0, 0), (-1, -1), 'TOP')]
-    )
-    
+    tbl_both = Table([[tbl1, tbl2]], colWidths=[doc.width / 2, doc.width / 2], hAlign='CENTER', style=[('VALIGN', (0, 0), (-1, -1), 'TOP')])
+
     elems.append(tbl_titles)
     elems.append(tbl_both)
 
-    # 1) Quebra para 2ª página e título
+    # =========================
+    # Página 2 — Sugestão Detalhada
+    # =========================
     elems.append(PageBreak())
     elems.append(Paragraph("Sugestão de Carteira", styles["Heading2"]))
     elems.append(Spacer(1, 12))
 
-    # 1) Cabeçalho e preparação de dados
     data = [["Ativo", "Capital Alocado", "% PL"]]
     classification_rows = []
     row_idx = 1
-    total_sug = ativos_df["Novo Valor"].astype(float).sum()
+    total_sug = pd.to_numeric(ativos_df["Novo Valor"], errors="coerce").fillna(0.0).sum()
 
-    # 2) Calcula soma por classificação e ordena decrescente
     class_sums = (
         ativos_df
-        .groupby("Classificação")["Novo Valor"]
+        .assign(_novo=pd.to_numeric(ativos_df["Novo Valor"], errors="coerce").fillna(0.0))
+        .groupby("Classificação")["_novo"]
         .sum()
         .sort_values(ascending=False)
     )
 
-    # 3) Preenche linhas: sub-cabeçalho (classificação) + ativos ordenados
     for categoria, soma_val in class_sums.items():
-        # % do grupo na carteira
-        soma_pct = (soma_val / total_sug) * 100
-
-        # 3.1) Linha de classificação (sub-cabeçalho)
+        soma_pct = (soma_val / total_sug * 100) if total_sug else 0.0
         data.append([
-            categoria.upper(),
-            format_number_br(soma_val),
-            f"{soma_pct:.2f}%".replace(".", ",")
+            str(categoria).upper(),
+            _format_number_br(soma_val),
+            f"{soma_pct:.2f}".replace(".", ",") + "%"
         ])
         classification_rows.append(row_idx)
         row_idx += 1
 
-        # 3.2) Linhas dos ativos dessa classificação, também ordenados decrescente
         grp = (
             ativos_df[ativos_df["Classificação"] == categoria]
-            .sort_values("Novo Valor", ascending=False)
+            .assign(_novo=pd.to_numeric(ativos_df.loc[ativos_df["Classificação"] == categoria, "Novo Valor"], errors="coerce").fillna(0.0))
+            .sort_values("_novo", ascending=False)
         )
-        for _, row in grp.iterrows():
-            # normaliza e remove chars invisíveis que viram quadrado preto
-            nome_ativo = unicodedata.normalize("NFKC", row["estrategia"]) \
-                .replace("\uFFFD", "") \
-                .replace("\xa0", " ") \
-                .strip()
-
+        for _, r in grp.iterrows():
+            nome_ativo = unicodedata.normalize("NFKC", str(r.get("estrategia", ""))).replace("\uFFFD", "").replace("\xa0", " ").strip()
+            nv = float(r.get("Novo Valor", 0.0)) if pd.notna(r.get("Novo Valor", 0.0)) else 0.0
             data.append([
                 nome_ativo,
-                format_number_br(row["Novo Valor"]),
-                f"{(row['Novo Valor'] / total_sug * 100):.2f}%".replace(".", ",")
+                _format_number_br(nv),
+                (f"{(nv / total_sug * 100):.2f}".replace(".", ",") + "%") if total_sug else "0,00%"
             ])
             row_idx += 1
 
-    # 4) Cria única tabela com header repetido a cada página
     tbl = Table(
         data,
         colWidths=[doc.width * 0.6, doc.width * 0.2, doc.width * 0.2],
         hAlign="LEFT",
-        repeatRows=1
+        repeatRows=1  # cabeçalho repete
     )
 
-    # 5) Ajusta estilos gerais e de classificação
     style = TableStyle([
-        # grid em toda a tabela
         ("GRID",        (0, 0), (-1, -1), 0.5, colors.black),
-
-        # cabeçalho: fundo cinza, texto branco, negrito e fonte maior
         ("BACKGROUND",  (0, 0), (-1, 0), colors.gray),
         ("TEXTCOLOR",   (0, 0), (-1, 0), colors.whitesmoke),
         ("FONTNAME",    (0, 0), (-1, 0), "Helvetica-Bold"),
@@ -492,28 +483,28 @@ def generate_pdf(
         ("ALIGN",       (0, 0), (-1, 0), "CENTER"),
         ("VALIGN",      (0, 0), (-1, 0), "MIDDLE"),
 
-        # corpo: fonte normal, menor
         ("FONTNAME",    (0, 1), (-1, -1), "Helvetica"),
         ("FONTSIZE",    (0, 1), (-1, -1), 8),
         ("ALIGN",       (0, 1), (-1, -1), "CENTER"),
         ("VALIGN",      (0, 1), (-1, -1), "MIDDLE"),
 
-        # coluna “Ativo” alinhada à esquerda
         ("ALIGN",       (0, 1), (0, -1), "LEFT"),
     ])
 
-    # 5.1) Destaca cada linha de classificação
     for i in classification_rows:
         style.add("BACKGROUND", (0, i), (-1, i), colors.lightgrey)
         style.add("FONTNAME",   (0, i), (-1, i), "Helvetica-Bold")
 
     tbl.setStyle(style)
     elems.append(tbl)
-    # --- fim da Carteira Modelo Detalhada ---
 
+    # =========================
+    # Build e retorno de bytes
+    # =========================
     doc.build(
         elems,
         onFirstPage=lambda c, d: (draw_header(c, d), draw_footer(c, d)),
         onLaterPages=lambda c, d: (draw_header(c, d), draw_footer(c, d))
     )
-    return output_path
+    output.seek(0)
+    return output.read()  # alteração realizada aqui: devolve bytes
