@@ -145,31 +145,34 @@ def show():
     # === ATIVOS ALOCADOS E RESGATADOS ===
     if "Valor Realocado" in ativos_df.columns:
         st.subheader("Ativos Alocados")
-        alocados = ativos_df[pd.to_numeric(ativos_df["Valor Realocado"], errors="coerce").fillna(0.0) > 0].copy()  # alteração realizada aqui
+        alocados = ativos_df[pd.to_numeric(ativos_df["Valor Realocado"], errors="coerce").fillna(0.0) > 0].copy()
         if not alocados.empty:
             for c in ["valor_atual", "Novo Valor", "Valor Realocado"]:
                 alocados[c] = pd.to_numeric(alocados[c], errors="coerce").fillna(0.0)
             alocados["Valor Atual (R$)"]     = alocados["valor_atual"].apply(format_number_br)
             alocados["Novo Valor (R$)"]      = alocados["Novo Valor"].apply(format_number_br)
             alocados["Valor Realocado (R$)"] = alocados["Valor Realocado"].apply(format_number_br)
-            st.dataframe(alocados[["Classificação", "estrategia", "Valor Atual (R$)", "Valor Realocado (R$)", "Novo Valor (R$)"]],
+            # alteração realizada aqui: renomeia 'estrategia' para 'Ativo'
+            alocados = alocados.rename(columns={"estrategia": "Ativo"})
+            st.dataframe(alocados[["Classificação", "Ativo", "Valor Atual (R$)", "Valor Realocado (R$)", "Novo Valor (R$)"]],
                          use_container_width=True, hide_index=True)
         else:
             st.markdown("_Nenhum ativo alocado._")
+
         st.subheader("Ativos Resgatados")
-        resgatados = ativos_df[pd.to_numeric(ativos_df["Valor Realocado"], errors="coerce").fillna(0.0) < 0].copy()  # alteração realizada aqui
+        resgatados = ativos_df[pd.to_numeric(ativos_df["Valor Realocado"], errors="coerce").fillna(0.0) < 0].copy()
         if not resgatados.empty:
             for c in ["valor_atual", "Novo Valor", "Valor Realocado"]:
                 resgatados[c] = pd.to_numeric(resgatados[c], errors="coerce").fillna(0.0)
             resgatados["Valor Atual (R$)"]     = resgatados["valor_atual"].apply(format_number_br)
             resgatados["Novo Valor (R$)"]      = resgatados["Novo Valor"].apply(format_number_br)
             resgatados["Valor Realocado (R$)"] = resgatados["Valor Realocado"].apply(format_number_br)
-            st.dataframe(resgatados[["Classificação", "estrategia", "Valor Atual (R$)", "Valor Realocado (R$)", "Novo Valor (R$)"]],
+            # alteração realizada aqui: renomeia 'estrategia' para 'Ativo'
+            resgatados = resgatados.rename(columns={"estrategia": "Ativo"})
+            st.dataframe(resgatados[["Classificação", "Ativo", "Valor Atual (R$)", "Valor Realocado (R$)", "Novo Valor (R$)"]],
                          use_container_width=True, hide_index=True)
         else:
             st.markdown("_Nenhum ativo resgatado._")
-    else:
-        st.warning("Coluna 'Valor Realocado' não encontrada. Volte à etapa 4 para simular os ajustes.")
 
     # === LIQUIDEZ POR FAIXAS ===
     st.subheader("Liquidez da carteira (R$) por Faixas")
@@ -278,3 +281,4 @@ def show():
     if st.button("Voltar para Sugestões"):
         st.session_state.etapa = 4
         st.rerun()
+
