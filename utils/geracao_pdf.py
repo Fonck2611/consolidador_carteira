@@ -99,7 +99,6 @@ def draw_header(canvas, doc):
     line_gap = 11
     for i, line in enumerate(CONTACT_LINES):
         canvas.drawRightString(contact_x, contact_y - i * line_gap, line)
-    # y após bloco de contato
     after_contact_y = contact_y - (len(CONTACT_LINES) - 1) * line_gap
 
     # ====== Linha divisória ======
@@ -153,7 +152,6 @@ def draw_header(canvas, doc):
         total += pill_gap * (len(pills) - 1)
         return total
 
-    # Tenta reduzir fonte/padding até caber em uma linha; senão quebra em 2 linhas
     while pill_font >= 6 and total_width(pill_font, pad_x) > col_width:
         pill_font -= 1
         pad_x -= 1
@@ -162,7 +160,6 @@ def draw_header(canvas, doc):
 
     need_two_rows = total_width(pill_font, pad_x) > col_width
 
-    # Desenha pílulas
     pill_h = field_height
     start_x = perf_left
     start_y = row1_field_y - field_height + 2
@@ -170,7 +167,6 @@ def draw_header(canvas, doc):
 
     def draw_pill(x, y, text, selected):
         w = canvas.stringWidth(text, "Helvetica-Bold", pill_font) + 2 * pad_x
-        # selecionada: fundo primário, texto branco
         if selected:
             canvas.setFillColor(PRIMARY_COLOR)
             canvas.roundRect(x, y, w, pill_h, 8, stroke=0, fill=1)
@@ -191,7 +187,6 @@ def draw_header(canvas, doc):
             px += w + pill_gap
     else:
         # quebra em 2 linhas de forma balanceada
-        # calcula quantas cabem na primeira linha
         row1, row2 = [], []
         px = start_x
         for p in pills:
@@ -201,12 +196,10 @@ def draw_header(canvas, doc):
                 px += w + pill_gap
             else:
                 row2.append(p)
-        # desenha linha 1
         px = start_x
         for p in row1:
             w = draw_pill(px, start_y, p, p == sel)
             px += w + pill_gap
-        # desenha linha 2 (logo abaixo)
         px = start_x
         start_y2 = start_y - (pill_h + 6)
         for p in row2:
@@ -239,20 +232,7 @@ def draw_header(canvas, doc):
     canvas.setFont("Helvetica", 10)
     canvas.drawString(perf_left + 6, row2_field_y - field_height + 5, APORTE_TEXT or "Sem aporte")
 
-    # ====== Bloco direito (Assessor/Patrimônio) logo abaixo do contato ======
-    info_x_right = right
-    info_base_y = row2_field_y - field_height - 14  # um pouco abaixo dos campos
-    info_spacing = 12
-
-    canvas.setFillColor(colors.HexColor("#5D6B7A"))
-    canvas.setFont("Helvetica-Bold", 9)
-    canvas.drawRightString(info_x_right - 120, info_base_y, "Assessor de Investimentos")
-    canvas.drawRightString(info_x_right - 120, info_base_y - info_spacing, "Patrimônio Total")
-
-    canvas.setFillColor(PRIMARY_COLOR)
-    canvas.setFont("Helvetica", 10)
-    canvas.drawRightString(info_x_right, info_base_y, NOME_ASSESSOR or "")
-    canvas.drawRightString(info_x_right, info_base_y - info_spacing, f"R$ {_format_number_br(patrimonio_total)}")
+    # >>> REMOVIDO: bloco "Assessor de Investimentos / Patrimônio Total" no topo direito  # alteração realizada aqui
 
     canvas.restoreState()
 
