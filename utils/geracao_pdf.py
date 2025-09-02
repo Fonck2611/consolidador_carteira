@@ -81,7 +81,7 @@ def draw_header(canvas, doc):
 
     left = doc.leftMargin
     right = page_width - doc.rightMargin
-    top_y = page_height - 54  # já estava mais baixo que o padrão
+    top_y = page_height - 54  # já rebaixado
 
     # ====== Título e data (lado esquerdo) ======
     canvas.setFillColor(PRIMARY_COLOR)
@@ -91,7 +91,7 @@ def draw_header(canvas, doc):
     canvas.setFont("Helvetica", 11)
     canvas.drawString(left, top_y - 20, DATA_HOJE_STR or _data_hoje_br())
 
-    # ====== Contato (topo direito, múltiplas linhas) ======
+    # ====== Contato (topo direito) ======
     contact_x = right
     contact_y = top_y
     canvas.setFont("Helvetica", 9)
@@ -102,13 +102,12 @@ def draw_header(canvas, doc):
     after_contact_y = contact_y - (len(CONTACT_LINES) - 1) * line_gap
 
     # ====== Linha divisória ======
-    # 1) Menor espaçamento entre o bloco de contato e a linha
-    line_y = min(top_y - 34, after_contact_y - 16)  # alteração realizada aqui (antes: -38 / -26)
+    line_y = min(top_y - 34, after_contact_y - 16)  # alteração realizada aqui (aproxima da área de contato)
     canvas.setStrokeColor(PRIMARY_COLOR)
     canvas.setLineWidth(0.6)
     canvas.line(left, line_y, right, line_y)
 
-    # ====== Campos: Nome do cliente / Perfil de risco ======
+    # ====== Campos ======
     label_color = colors.HexColor("#5D6B7A")
     field_bg = colors.HexColor("#F1F3F5")
     field_radius = 4
@@ -117,11 +116,11 @@ def draw_header(canvas, doc):
     col_gap = 20
     col_width = (right - left - col_gap) / 2
 
-    # Linha 1: Nome do cliente  |  Perfil de risco sugerido (pílulas)
+    # Linha 1: Nome do cliente | Perfil de risco sugerido
     row1_label_y = line_y - 16
     row1_field_y = row1_label_y - 14
 
-    # Nome do cliente (label + caixa)
+    # Nome do cliente
     canvas.setFillColor(label_color)
     canvas.setFont("Helvetica-Bold", 9)
     canvas.drawString(left, row1_label_y, "Nome do cliente")
@@ -138,83 +137,49 @@ def draw_header(canvas, doc):
     canvas.setFont("Helvetica-Bold", 9)
     canvas.drawString(perf_left, row1_label_y, "Perfil de risco sugerido")
 
-    # ---- Pílulas com dimensionamento adaptativo ----
+    # ---- Pílulas ocupando 100% da largura (sem caixa de fundo) ----
     pills = ["CONSERVADORA", "MODERADA", "SOFISTICADA", "PERSONALIZADA"]
     sel = (PERFIL_RISCO or "PERSONALIZADA").upper()
-    pill_font = 8
-    pad_x = 9  # padding horizontal
-    pill_gap = 8
-
-    def total_width(font_size, padding):
-        total = 0
-        for p in pills:
-            w = canvas.stringWidth(p, "Helvetica-Bold", font_size) + 2 * padding
-            total += w
-        total += pill_gap * (len(pills) - 1)
-        return total
-
-    while pill_font >= 6 and total_width(pill_font, pad_x) > col_width:
-        pill_font -= 1
-        pad_x -= 1
-        if pad_x < 6:
-            break
-
-    need_two_rows = total_width(pill_font, pad_x) > col_width
-
     pill_h = field_height
+    pill_gap = 8
+    pill_font = 8
+    pad_x = 8
+
+    pill_width = (col_width - (len(pills) - 1) * pill_gap) / len(pills)  # alteração realizada aqui
+
+    # Ajuste de fonte/padding para caber dentro de cada pílula fixa
+    def fits(font_size, padding):
+        maxw = max(canvas.stringWidth(p, "Helvetica-Bold", font_size) for p in pills)
+        return (maxw + 2 * padding) <= pill_width
+
+    while pill_font > 6 and not fits(pill_font, pad_x):
+        pill_font -= 1
+        if not fits(pill_font, pad_x) and pad_x > 6:
+            pad_x -= 1
+
     start_x = perf_left
     start_y = row1_field_y - field_height + 2
     canvas.setFont("Helvetica-Bold", pill_font)
 
-    # 3) Campo de largura total para as pílulas (mesma largura do “Sem aporte”)
-    #    Alça altura automaticamente se quebrar em 2 linhas.
-    container_h = pill_h if not need_two_rows else (2 * pill_h + 6)  # alteração realizada aqui
-    canvas.setFillColor(field_bg)
-    canvas.roundRect(perf_left, start_y, col_width, container_h, field_radius, stroke=0, fill=1)  # alteração realizada aqui
-
-    def draw_pill(x, y, text, selected):
-        w = canvas.stringWidth(text, "Helvetica-Bold", pill_font) + 2 * pad_x
+    def draw_pill_fixed(x, y, text, selected, width):
         if selected:
             canvas.setFillColor(PRIMARY_COLOR)
-            canvas.roundRect(x, y, w, pill_h, 8, stroke=0, fill=1)
+            canvas.roundRect(x, y, width, pill_h, 8, stroke=0, fill=1)
             canvas.setFillColor(colors.whitesmoke)
         else:
             canvas.setFillColor(colors.white)
             canvas.setStrokeColor(PRIMARY_COLOR)
-            canvas.roundRect(x, y, w, pill_h, 8, stroke=1, fill=1)
+            canvas.roundRect(x, y, width, pill_h, 8, stroke=1, fill=1)
             canvas.setFillColor(PRIMARY_COLOR)
-        canvas.drawCentredString(x + w / 2, y + 4, text)
-        return w
+        canvas.drawCentredString(x + width / 2, y + 4, text)
 
-    if not need_two_rows:
-        px = start_x + 4  # leve recuo para não colar na borda do campo
-        py = start_y
-        for p in pills:
-            w = draw_pill(px, py, p, p == sel)
-            px += w + pill_gap
-    else:
-        # quebra em 2 linhas de forma balanceada
-        row1, row2 = [], []
-        px = start_x + 4
-        for p in pills:
-            w = canvas.stringWidth(p, "Helvetica-Bold", pill_font) + 2 * pad_x
-            if px + w - (start_x + 4) <= col_width or not row1:
-                row1.append(p)
-                px += w + pill_gap
-            else:
-                row2.append(p)
-        px = start_x + 4
-        for p in row1:
-            w = draw_pill(px, start_y, p, p == sel)
-            px += w + pill_gap
-        px = start_x + 4
-        start_y2 = start_y - (pill_h + 6)
-        for p in row2:
-            w = draw_pill(px, start_y2, p, p == sel)
-            px += w + pill_gap
+    px = start_x
+    for p in pills:
+        draw_pill_fixed(px, start_y, p, p == sel, pill_width)  # alteração realizada aqui
+        px += pill_width + pill_gap
 
-    # Linha 2: Nome de assessor  |  Aporte
-    row2_label_y = row1_field_y - (field_height if not need_two_rows else 2 * field_height + 6) - 12
+    # Linha 2: Nome de assessor | Aporte
+    row2_label_y = row1_field_y - field_height - 12  # alteração realizada aqui (uma linha apenas de pílulas)
     row2_field_y = row2_label_y - 14
 
     # Nome de assessor
@@ -228,7 +193,7 @@ def draw_header(canvas, doc):
     canvas.setFont("Helvetica-Bold", 10)
     canvas.drawString(left + 6, row2_field_y - field_height + 5, (NOME_ASSESSOR or "").upper())
 
-    # Aporte (texto)
+    # Aporte
     canvas.setFillColor(label_color)
     canvas.setFont("Helvetica-Bold", 9)
     canvas.drawString(perf_left, row2_label_y, "Aporte")
@@ -238,8 +203,6 @@ def draw_header(canvas, doc):
     canvas.setFillColor(PRIMARY_COLOR)
     canvas.setFont("Helvetica", 10)
     canvas.drawString(perf_left + 6, row2_field_y - field_height + 5, APORTE_TEXT or "Sem aporte")
-
-    # >>> REMOVIDO: bloco "Assessor de Investimentos / Patrimônio Total" no topo direito
 
     canvas.restoreState()
 
@@ -327,7 +290,6 @@ def generate_pdf(
     APORTE_TEXT = (sugestao or {}).get("aporte_text", "Sem aporte") or "Sem aporte"
 
     styles = getSampleStyleSheet()
-    # Define a cor da fonte nos estilos padrões
     for s in styles.byName.values():
         s.textColor = PRIMARY_COLOR
 
@@ -384,14 +346,13 @@ def generate_pdf(
     doc = SimpleDocTemplate(
         buffer_relatorio,
         pagesize=A4,
-        topMargin=240,  # 2) Mais espaço do fim do cabeçalho até o conteúdo (antes: 205)  # alteração realizada aqui
+        topMargin=240,  # garante respiro após o cabeçalho
         bottomMargin=60,
         leftMargin=36,
         rightMargin=36
     )
 
-    # Mantemos apenas um espaçador inicial leve
-    elems.append(Spacer(1, 18))
+    elems.append(Spacer(1, 18))  # respiro inicial
 
     buf1, color_map = make_doughnut_atual(df_dist, 'Percentual')
     buf2 = make_doughnut_modelo(df_modelo, 'Percentual Ideal', color_map)
@@ -548,7 +509,7 @@ def generate_pdf(
     tbl.setStyle(style)
     elems.append(tbl)
 
-    # Build do relatório — com header/footer
+    # Build do relatório
     def _on_page(canvas, doc):
         draw_header(canvas, doc)
         draw_footer(canvas, doc)
@@ -563,26 +524,10 @@ def generate_pdf(
     ultima_path  = os.path.join(base_dir, "ultima_pagina.pdf")
 
     writer = PdfWriter()
-
-    # 1) Capa
-    reader_capa = PdfReader(capa_path)
-    for p in reader_capa.pages:
-        writer.add_page(p)
-
-    # 2) Contra-capa
-    reader_contra = PdfReader(contra_path)
-    for p in reader_contra.pages:
-        writer.add_page(p)
-
-    # 3) Relatório
-    reader_rel = PdfReader(buffer_relatorio)
-    for p in reader_rel.pages:
-        writer.add_page(p)
-
-    # 4) Última página
-    reader_ultima = PdfReader(ultima_path)
-    for p in reader_ultima.pages:
-        writer.add_page(p)
+    for p in PdfReader(capa_path).pages: writer.add_page(p)
+    for p in PdfReader(contra_path).pages: writer.add_page(p)
+    for p in PdfReader(buffer_relatorio).pages: writer.add_page(p)
+    for p in PdfReader(ultima_path).pages: writer.add_page(p)
 
     output_final = io.BytesIO()
     writer.write(output_final)
