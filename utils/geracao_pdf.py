@@ -12,7 +12,8 @@ import os
 import matplotlib.pyplot as plt
 from utils.cores import PALETTE
 import unicodedata
-from PyPDF2 import PdfReader, PdfWriter  # para concatenar PDFs (capa/contra/última)
+from PyPDF2 import PdfReader, PdfWriter  # concatenação das páginas PDF
+from datetime import datetime  # alteração: para data de hoje
 
 # =========================
 # Estado global simples (para header)
@@ -22,8 +23,16 @@ CLIENTE_NOME = ""
 NOME_ASSESSOR = ""
 
 # Cor primária de texto
-PRIMARY_COLOR = colors.HexColor("#122940")  # alteração realizada aqui
+PRIMARY_COLOR = colors.HexColor("#122940")
 
+# Variáveis do novo cabeçalho
+DATA_HOJE_STR = ""          # ex.: "28 de julho de 2025"
+PERFIL_RISCO = "PERSONALIZADA"
+APORTE_TEXT = "Sem aporte"  # por enquanto fixo; preparado para virar variável
+
+# -------------------------
+# Utilidades
+# -------------------------
 def _format_number_br(valor: float) -> str:
     try:
         v = float(valor)
@@ -32,57 +41,154 @@ def _format_number_br(valor: float) -> str:
     s = f"{v:,.2f}"
     return s.replace(",", "v").replace(".", ",").replace("v", ".")
 
+def _data_hoje_br() -> str:
+    meses = [
+        "janeiro", "fevereiro", "março", "abril", "maio", "junho",
+        "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"
+    ]
+    hoje = datetime.today()
+    return f"{hoje.day} de {meses[hoje.month-1]} de {hoje.year}"
+
+def _inferir_perfil(sugestao: dict) -> str:
+    """
+    Tenta inferir o perfil a partir do dict 'sugestao' ou de chaves relacionadas.
+    Aceita valores como 'conservadora', 'moderada', 'sofisticada', 'personalizada'.
+    """
+    cand = (sugestao or {}).get("perfil") or (sugestao or {}).get("carteira_modelo") or ""
+    cand = str(cand).strip().lower()
+    if "conserv" in cand:
+        return "CONSERVADORA"
+    if "moder" in cand:
+        return "MODERADA"
+    if "sofist" in cand:
+        return "SOFISTICADA"
+    if "person" in cand or "custom" in cand or "personalizada" in cand:
+        return "PERSONALIZADA"
+    return "PERSONALIZADA"
+
+# -------------------------
+# Cabeçalho/Rodapé
+# -------------------------
 def draw_header(canvas, doc):
     canvas.saveState()
     page_width, page_height = A4
-    faixa_altura = 40
 
-    # Faixa azul no topo
-    canvas.setFillColor(colors.HexColor("#0F2B56"))
-    canvas.rect(4, page_height - faixa_altura - 4, page_width - 8, faixa_altura, stroke=0, fill=1)
+    left = doc.leftMargin
+    right = page_width - doc.rightMargin
+    top_y = page_height - 36  # margem visual
 
-    # Logo
-    try:
-        base_dir = os.path.dirname(__file__)
-        logo_path = os.path.join(base_dir, "Logo_Criteria_Financial_Group_Cor_V2_RGB-01.png")
-        logo = ImageReader(logo_path)
-        canvas.drawImage(logo, x=6, y=page_height - 55, width=125.6, height=60, mask='auto')
-    except Exception as e:
-        print("Erro ao carregar logo:", e)
+    # ====== Título e data (lado esquerdo) ======
+    canvas.setFillColor(PRIMARY_COLOR)
+    canvas.setFont("Helvetica-Bold", 22)
+    canvas.drawString(left, top_y, "Realocação de Portfólio")
 
-    # Título à direita (permanece branco para contraste na faixa azul)
-    canvas.setFillColor(colors.whitesmoke)
-    canvas.setFont("Helvetica", 18)
-    canvas.drawRightString(page_width - 10, page_height - 28, "Realocação de Carteira")
+    canvas.setFont("Helvetica", 11)
+    canvas.drawString(left, top_y - 18, DATA_HOJE_STR or _data_hoje_br())
 
-    # Bloco de informações do cliente (na cor primária)
-    canvas.setFont("Helvetica-Bold", 12)
-    canvas.setFillColor(PRIMARY_COLOR)  # alteração realizada aqui
-    canvas.drawString(10, page_height - 80, (CLIENTE_NOME or "").upper())
+    # ====== Bloco direito (informações existentes: assessor e patrimônio) ======
+    # Mantém as informações da versão anterior (consideradas corretas)
+    info_x_right = right
+    info_base_y = top_y
+    info_spacing = 12
 
-    canvas.setFont("Helvetica-Bold", 10)
-    right_base_y = page_height - 60
-    info_spacing = 10
+    # Rótulos (cinza escuro para diferenciar)
+    canvas.setFillColor(colors.HexColor("#5D6B7A"))
+    canvas.setFont("Helvetica-Bold", 9)
+    canvas.drawRightString(info_x_right - 120, info_base_y, "Assessor de Investimentos")
+    canvas.drawRightString(info_x_right - 120, info_base_y - info_spacing, "Patrimônio Total")
 
-    # Rótulos à direita (mantêm branco por estarem na faixa azul)
-    canvas.setFillColor(colors.whitesmoke)
-    canvas.drawRightString(page_width - 110, right_base_y - 1 * info_spacing, "Assessor de Investimentos")
-    canvas.drawRightString(page_width - 110, right_base_y - 2.5 * info_spacing, "Patrimônio Total")
-
-    # Valores à direita (na cor primária)
+    # Valores (cor primária)
+    canvas.setFillColor(PRIMARY_COLOR)
     canvas.setFont("Helvetica", 10)
-    canvas.setFillColor(PRIMARY_COLOR)  # alteração realizada aqui
-    canvas.drawRightString(page_width - 10, right_base_y - 1 * info_spacing, NOME_ASSESSOR or "")
-    canvas.drawRightString(
-        page_width - 10,
-        right_base_y - 2.5 * info_spacing,
-        f"R$ {_format_number_br(patrimonio_total)}"
-    )
+    canvas.drawRightString(info_x_right, info_base_y, NOME_ASSESSOR or "")
+    canvas.drawRightString(info_x_right, info_base_y - info_spacing, f"R$ {_format_number_br(patrimonio_total)}")
 
-    # Linha final separadora (na cor primária)
-    canvas.setStrokeColor(PRIMARY_COLOR)  # alteração realizada aqui
-    canvas.setLineWidth(0.5)
-    canvas.line(10, page_height - 100, page_width - 10, page_height - 100)
+    # ====== Linha divisória ======
+    line_y = top_y - 32
+    canvas.setStrokeColor(PRIMARY_COLOR)
+    canvas.setLineWidth(0.6)
+    canvas.line(left, line_y, right, line_y)
+
+    # ====== Campos: Nome do cliente / Perfil de risco ======
+    # Layout em duas colunas; altura das "caixas"
+    label_color = colors.HexColor("#5D6B7A")
+    field_bg = colors.HexColor("#F1F3F5")
+    field_radius = 4
+    field_height = 16
+
+    col_gap = 20
+    col_width = (right - left - col_gap) / 2
+
+    # Linha 1: Nome do cliente  |  Perfil de risco sugerido (pílulas)
+    row1_label_y = line_y - 16
+    row1_field_y = row1_label_y - 14
+
+    # Nome do cliente (label + caixa)
+    canvas.setFillColor(label_color)
+    canvas.setFont("Helvetica-Bold", 9)
+    canvas.drawString(left, row1_label_y, "Nome do cliente")
+
+    canvas.setFillColor(field_bg)
+    canvas.roundRect(left, row1_field_y - field_height + 2, col_width, field_height, field_radius, stroke=0, fill=1)
+    canvas.setFillColor(PRIMARY_COLOR)
+    canvas.setFont("Helvetica-Bold", 10)
+    canvas.drawString(left + 6, row1_field_y - field_height + 5, (CLIENTE_NOME or "").upper())
+
+    # Perfil de risco sugerido
+    perf_left = left + col_width + col_gap
+    canvas.setFillColor(label_color)
+    canvas.setFont("Helvetica-Bold", 9)
+    canvas.drawString(perf_left, row1_label_y, "Perfil de risco sugerido")
+
+    # Pílulas do perfil
+    pills = ["CONSERVADORA", "MODERADA", "SOFISTICADA", "PERSONALIZADA"]
+    sel = (PERFIL_RISCO or "PERSONALIZADA").upper()
+    px = perf_left
+    py = row1_field_y - field_height + 2
+    pill_h = field_height
+    canvas.setFont("Helvetica-Bold", 8)
+
+    for i, p in enumerate(pills):
+        pill_w = canvas.stringWidth(p, "Helvetica-Bold", 8) + 18
+        if p == sel:
+            # selecionada: fundo cor primária, texto branco
+            canvas.setFillColor(PRIMARY_COLOR)
+            canvas.roundRect(px, py, pill_w, pill_h, 8, stroke=0, fill=1)
+            canvas.setFillColor(colors.whitesmoke)
+        else:
+            # não selecionada: fundo claro, borda primária, texto primário
+            canvas.setFillColor(field_bg)
+            canvas.roundRect(px, py, pill_w, pill_h, 8, stroke=1, fill=1)
+            canvas.setStrokeColor(PRIMARY_COLOR)
+            canvas.setFillColor(PRIMARY_COLOR)
+        canvas.drawCentredString(px + pill_w / 2, py + 4, p)
+        px += pill_w + 8
+
+    # Linha 2: Nome de assessor  |  Aporte
+    row2_label_y = row1_field_y - field_height - 12
+    row2_field_y = row2_label_y - 14
+
+    # Nome de assessor
+    canvas.setFillColor(label_color)
+    canvas.setFont("Helvetica-Bold", 9)
+    canvas.drawString(left, row2_label_y, "Nome de assessor")
+
+    canvas.setFillColor(field_bg)
+    canvas.roundRect(left, row2_field_y - field_height + 2, col_width, field_height, field_radius, stroke=0, fill=1)
+    canvas.setFillColor(PRIMARY_COLOR)
+    canvas.setFont("Helvetica-Bold", 10)
+    canvas.drawString(left + 6, row2_field_y - field_height + 5, (NOME_ASSESSOR or "").upper())
+
+    # Aporte (por enquanto, texto fixo; deixado preparado)
+    canvas.setFillColor(label_color)
+    canvas.setFont("Helvetica-Bold", 9)
+    canvas.drawString(perf_left, row2_label_y, "Aporte")
+
+    canvas.setFillColor(field_bg)
+    canvas.roundRect(perf_left, row2_field_y - field_height + 2, col_width, field_height, field_radius, stroke=0, fill=1)
+    canvas.setFillColor(PRIMARY_COLOR)
+    canvas.setFont("Helvetica", 10)
+    canvas.drawString(perf_left + 6, row2_field_y - field_height + 5, APORTE_TEXT or "Sem aporte")
 
     canvas.restoreState()
 
@@ -97,7 +203,7 @@ def draw_footer(canvas, doc):
         name="FooterStyle",
         fontSize=5,
         leading=7,
-        textColor=PRIMARY_COLOR,  # alteração realizada aqui
+        textColor=PRIMARY_COLOR,
         alignment=TA_CENTER,
         spaceBefore=2,
         spaceAfter=2
@@ -122,6 +228,9 @@ def draw_footer(canvas, doc):
 
     canvas.restoreState()
 
+# -------------------------
+# Geração do PDF
+# -------------------------
 def generate_pdf(
     dist_df: pd.DataFrame,
     modelo_df: pd.DataFrame,
@@ -138,46 +247,42 @@ def generate_pdf(
       [3] relatório (gerado aqui, com header/footer)
       [4] utils/ultima_pagina.pdf
     """
-    # -------------------------
-    # Normalizações de entrada
-    # -------------------------
+    # Normalizações
     df_dist = dist_df.copy()
     if "valor" not in df_dist.columns and "valor_atual" in df_dist.columns:
-        df_dist = df_dist.rename(columns={"valor_atual": "valor"})  # alteração realizada aqui
+        df_dist = df_dist.rename(columns={"valor_atual": "valor"})
 
     if "Percentual" not in df_dist.columns:
         total_val = pd.to_numeric(df_dist["valor"], errors="coerce").fillna(0.0).sum()
         df_dist["Percentual"] = (
             pd.to_numeric(df_dist["valor"], errors="coerce").fillna(0.0) / total_val * 100 if total_val else 0.0
-        )  # alteração realizada aqui
+        )
 
     df_modelo = modelo_df.copy()
     if "Percentual Ideal" not in df_modelo.columns:
         poss = [c for c in df_modelo.columns if "percentual" in c.lower()]
         if poss:
-            df_modelo = df_modelo.rename(columns={poss[0]: "Percentual Ideal"})  # alteração realizada aqui
+            df_modelo = df_modelo.rename(columns={poss[0]: "Percentual Ideal"})
         else:
             raise ValueError("modelo_df precisa conter a coluna 'Percentual Ideal'.")
 
-    # -------------------------
     # Estado global para header
-    # -------------------------
-    global patrimonio_total, CLIENTE_NOME, NOME_ASSESSOR
+    global patrimonio_total, CLIENTE_NOME, NOME_ASSESSOR, DATA_HOJE_STR, PERFIL_RISCO, APORTE_TEXT
     CLIENTE_NOME = cliente_nome or ""
     NOME_ASSESSOR = nome_assessor or ""
     patrimonio_total = pd.to_numeric(df_dist["valor"], errors="coerce").fillna(0.0).sum()
+    DATA_HOJE_STR = _data_hoje_br()
+    PERFIL_RISCO = _inferir_perfil(sugestao)
+    APORTE_TEXT = (sugestao or {}).get("aporte_text", "Sem aporte") or "Sem aporte"
 
     styles = getSampleStyleSheet()
-
-    # Define a cor da fonte nos estilos padrões (Normal, Title, Heading2, etc.)
-    for s in styles.byName.values():  # alteração realizada aqui
+    # Define a cor da fonte nos estilos padrões
+    for s in styles.byName.values():
         s.textColor = PRIMARY_COLOR
 
     elems = []
 
-    # -------------------------
-    # Funções de gráficos donut
-    # -------------------------
+    # ===== Gráficos donut =====
     def make_doughnut_atual(df, percent_col):
         sorted_df = df.sort_values(by=percent_col, ascending=False).reset_index(drop=True)
         labels = sorted_df["Classificação"].tolist()
@@ -223,31 +328,23 @@ def generate_pdf(
         plt.close(fig); buf.seek(0)
         return buf
 
-    # -------------------------
-    # Conteúdo do relatório (COMPLETO)
-    # -------------------------
+    # ===== Conteúdo do relatório =====
     buffer_relatorio = io.BytesIO()
     doc = SimpleDocTemplate(
-        buffer_relatorio, pagesize=A4, topMargin=130, bottomMargin=60, leftMargin=36, rightMargin=36
+        buffer_relatorio, pagesize=A4, topMargin=160, bottomMargin=60, leftMargin=36, rightMargin=36
     )
 
-    # Título
     elems.append(Spacer(1, 5))
     elems.append(Paragraph("Proposta de Alocação de Carteira", styles["Title"]))
     elems.append(Spacer(1, 12))
 
-    # Donuts + comparativo
     buf1, color_map = make_doughnut_atual(df_dist, 'Percentual')
     buf2 = make_doughnut_modelo(df_modelo, 'Percentual Ideal', color_map)
 
     comp_data = [["Atual (%)", "Classificação", "Modelo (%)"]]
     header_small = ParagraphStyle(
-        name="HeaderSmall",
-        parent=styles["Normal"],
-        alignment=TA_CENTER,
-        fontSize=8,
-        leading=8,
-        textColor=colors.whitesmoke  # mantém branco no cabeçalho da tabela para contraste
+        name="HeaderSmall", parent=styles["Normal"], alignment=TA_CENTER,
+        fontSize=8, leading=8, textColor=colors.whitesmoke
     )
     comp_data[0] = [Paragraph(c, header_small) for c in comp_data[0]]
 
@@ -265,7 +362,7 @@ def generate_pdf(
         b.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,-1), colors.HexColor(color) if isinstance(color, str) else color),
                                ("BOX", (0,0), (-1,-1), 0, colors.white)]))
         small = ParagraphStyle("Small", parent=styles["Normal"], fontSize=8, textColor=PRIMARY_COLOR,
-                               alignment=TA_RIGHT if align=="right" else TA_LEFT)  # alteração realizada aqui
+                               alignment=TA_RIGHT if align=="right" else TA_LEFT)
         if align == "left":
             return Table([[b, Spacer(1,0), Paragraph(percent, small)]], colWidths=[4,1,None],
                          style=[("VALIGN",(0,0),(-1,-1),"MIDDLE"), ("LEFTPADDING",(0,0),(-1,-1),0), ("RIGHTPADDING",(0,0),(-1,-1),0)])
@@ -275,7 +372,7 @@ def generate_pdf(
 
     rows = []
     small_center = ParagraphStyle("SmallCenter", parent=styles["Normal"], alignment=TA_CENTER, fontSize=7,
-                                  wordWrap='CJK', keepAll=True, textColor=PRIMARY_COLOR)  # alteração realizada aqui
+                                  wordWrap='CJK', keepAll=True, textColor=PRIMARY_COLOR)
     for _, r in temp_df.iterrows():
         color = color_map.get(r["Classificação"], "#000000")
         rows.append([bar(color, "left", r["Atual"]), Paragraph(str(r["Classificação"]), small_center), bar(color, "right", r["Modelo"])])
@@ -289,16 +386,16 @@ def generate_pdf(
         ('RIGHTPADDING', (-1,1), (-1,-1), 0),
         ('TOPPADDING', (0,0), (-1,-1), 2),
         ('BOTTOMPADDING', (0,0), (-1,-1), 2),
-        ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),  # header
+        ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
         ('BACKGROUND', (0,0), (-1,0), colors.gray),
-        ('TEXTCOLOR', (0,1), (-1,-1), PRIMARY_COLOR),      # corpo na cor primária (alteração)
+        ('TEXTCOLOR', (0,1), (-1,-1), PRIMARY_COLOR),
     ]))
 
     def titulo_com_traco(texto):
         sub = ParagraphStyle("SubHeader", parent=styles["Normal"], alignment=TA_CENTER,
-                             fontSize=9, spaceAfter=2, textColor=PRIMARY_COLOR, textTransform='uppercase')  # alteração
+                             fontSize=9, spaceAfter=2, textColor=PRIMARY_COLOR, textTransform='uppercase')
         return Table([[Paragraph(texto, sub)],
-                      [Table([[""]], colWidths="100%", style=[("LINEBELOW",(0,0),(-1,-1),0, PRIMARY_COLOR)])]],  # alteração
+                      [Table([[""]], colWidths="100%", style=[("LINEBELOW",(0,0),(-1,-1),0, PRIMARY_COLOR)])]],
                      hAlign='CENTER',
                      style=[("BOTTOMPADDING",(0,0),(-1,-1),0), ("TOPPADDING",(0,1),(-1,1),-12)])
 
@@ -333,14 +430,14 @@ def generate_pdf(
     styl = TableStyle([
         ('BACKGROUND',(0,0),(-1,0),colors.gray),
         ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
-        ('TEXTCOLOR',(0,1),(-1,-1),PRIMARY_COLOR),  # corpo na cor primária (alteração)
+        ('TEXTCOLOR',(0,1),(-1,-1),PRIMARY_COLOR),
         ('GRID',(0,0),(-1,-1),0.5,colors.black),
         ('ALIGN',(0,0),(-1,-1),'CENTER'),
         ('VALIGN',(0,0),(-1,-1),'TOP'),
     ])
     tbl1.setStyle(styl); tbl2.setStyle(styl)
 
-    title_center = ParagraphStyle(name="CenteredTitle", parent=styles["Heading2"], alignment=TA_CENTER, textColor=PRIMARY_COLOR)  # alteração
+    title_center = ParagraphStyle(name="CenteredTitle", parent=styles["Heading2"], alignment=TA_CENTER, textColor=PRIMARY_COLOR)
     elems.append(Table([[Paragraph("Carteira Atual", title_center), Paragraph("Carteira Proposta", title_center)]],
                        colWidths=[doc.width/2, doc.width/2], hAlign='CENTER'))
     elems.append(Table([[tbl1, tbl2]], colWidths=[doc.width/2, doc.width/2], hAlign='CENTER',
@@ -348,7 +445,7 @@ def generate_pdf(
 
     # Página seguinte — Sugestão de Carteira (detalhada)
     elems.append(PageBreak())
-    elems.append(Paragraph("Sugestão de Carteira", styles["Heading2"]))  # Heading2 já usa PRIMARY_COLOR
+    elems.append(Paragraph("Sugestão de Carteira", styles["Heading2"]))
     elems.append(Spacer(1, 12))
 
     data = [["Ativo", "Capital Alocado", "% PL"]]
@@ -379,12 +476,11 @@ def generate_pdf(
         ("GRID",(0,0),(-1,-1),0.5,colors.black),
         ("BACKGROUND",(0,0),(-1,0),colors.gray),
         ("TEXTCOLOR",(0,0),(-1,0),colors.whitesmoke),
-        ("TEXTCOLOR",(0,1),(-1,-1),PRIMARY_COLOR),  # corpo na cor primária (alteração)
+        ("TEXTCOLOR",(0,1),(-1,-1),PRIMARY_COLOR),
         ("FONTNAME",(0,0),(-1,0),"Helvetica-Bold"),
         ("FONTSIZE",(0,0),(-1,0),10),
         ("ALIGN",(0,0),(-1,0),"CENTER"),
         ("VALIGN",(0,0),(-1,0),"MIDDLE"),
-
         ("FONTNAME",(0,1),(-1,-1),"Helvetica"),
         ("FONTSIZE",(0,1),(-1,-1),8),
         ("ALIGN",(0,1),(0,-1),"LEFT"),
@@ -405,9 +501,7 @@ def generate_pdf(
     doc.build(elems, onFirstPage=_on_page, onLaterPages=_on_page)
     buffer_relatorio.seek(0)
 
-    # -------------------------
     # Concatenação final
-    # -------------------------
     base_dir = os.path.dirname(__file__)
     capa_path    = os.path.join(base_dir, "capa.pdf")
     contra_path  = os.path.join(base_dir, "contra_capa.pdf")
