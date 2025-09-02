@@ -81,16 +81,15 @@ def draw_header(canvas, doc):
 
     left = doc.leftMargin
     right = page_width - doc.rightMargin
-    # top_y original era (page_height - 36). Abaixamos ~18 pts para “descer” o título e a data
-    top_y = page_height - 54  # alteração realizada aqui: baixa o bloco título/data ~0,6 cm
+    top_y = page_height - 54  # já estava mais baixo que o padrão
 
     # ====== Título e data (lado esquerdo) ======
     canvas.setFillColor(PRIMARY_COLOR)
     canvas.setFont("Helvetica-Bold", 22)
-    canvas.drawString(left, top_y, "Realocação de Portfólio")  # mantém o texto, só ficou mais baixo
+    canvas.drawString(left, top_y, "Realocação de Portfólio")
 
     canvas.setFont("Helvetica", 11)
-    canvas.drawString(left, top_y - 20, DATA_HOJE_STR or _data_hoje_br())  # alteração realizada aqui: -20 (antes -18) para mais respiro
+    canvas.drawString(left, top_y - 20, DATA_HOJE_STR or _data_hoje_br())
 
     # ====== Contato (topo direito, múltiplas linhas) ======
     contact_x = right
@@ -103,8 +102,8 @@ def draw_header(canvas, doc):
     after_contact_y = contact_y - (len(CONTACT_LINES) - 1) * line_gap
 
     # ====== Linha divisória ======
-    # aumentamos o espaçamento abaixo do cabeçalho para evitar sobreposição
-    line_y = min(top_y - 38, after_contact_y - 26)  # alteração realizada aqui: antes -32/-20
+    # 1) Menor espaçamento entre o bloco de contato e a linha
+    line_y = min(top_y - 34, after_contact_y - 16)  # alteração realizada aqui (antes: -38 / -26)
     canvas.setStrokeColor(PRIMARY_COLOR)
     canvas.setLineWidth(0.6)
     canvas.line(left, line_y, right, line_y)
@@ -167,6 +166,12 @@ def draw_header(canvas, doc):
     start_y = row1_field_y - field_height + 2
     canvas.setFont("Helvetica-Bold", pill_font)
 
+    # 3) Campo de largura total para as pílulas (mesma largura do “Sem aporte”)
+    #    Alça altura automaticamente se quebrar em 2 linhas.
+    container_h = pill_h if not need_two_rows else (2 * pill_h + 6)  # alteração realizada aqui
+    canvas.setFillColor(field_bg)
+    canvas.roundRect(perf_left, start_y, col_width, container_h, field_radius, stroke=0, fill=1)  # alteração realizada aqui
+
     def draw_pill(x, y, text, selected):
         w = canvas.stringWidth(text, "Helvetica-Bold", pill_font) + 2 * pad_x
         if selected:
@@ -174,7 +179,7 @@ def draw_header(canvas, doc):
             canvas.roundRect(x, y, w, pill_h, 8, stroke=0, fill=1)
             canvas.setFillColor(colors.whitesmoke)
         else:
-            canvas.setFillColor(field_bg)
+            canvas.setFillColor(colors.white)
             canvas.setStrokeColor(PRIMARY_COLOR)
             canvas.roundRect(x, y, w, pill_h, 8, stroke=1, fill=1)
             canvas.setFillColor(PRIMARY_COLOR)
@@ -182,7 +187,7 @@ def draw_header(canvas, doc):
         return w
 
     if not need_two_rows:
-        px = start_x
+        px = start_x + 4  # leve recuo para não colar na borda do campo
         py = start_y
         for p in pills:
             w = draw_pill(px, py, p, p == sel)
@@ -190,19 +195,19 @@ def draw_header(canvas, doc):
     else:
         # quebra em 2 linhas de forma balanceada
         row1, row2 = [], []
-        px = start_x
+        px = start_x + 4
         for p in pills:
             w = canvas.stringWidth(p, "Helvetica-Bold", pill_font) + 2 * pad_x
-            if px + w - start_x <= col_width or not row1:
+            if px + w - (start_x + 4) <= col_width or not row1:
                 row1.append(p)
                 px += w + pill_gap
             else:
                 row2.append(p)
-        px = start_x
+        px = start_x + 4
         for p in row1:
             w = draw_pill(px, start_y, p, p == sel)
             px += w + pill_gap
-        px = start_x
+        px = start_x + 4
         start_y2 = start_y - (pill_h + 6)
         for p in row2:
             w = draw_pill(px, start_y2, p, p == sel)
@@ -379,14 +384,14 @@ def generate_pdf(
     doc = SimpleDocTemplate(
         buffer_relatorio,
         pagesize=A4,
-        topMargin=205,  # alteração realizada aqui: era 180. Mais espaço livre após o cabeçalho para evitar sobreposição.
+        topMargin=240,  # 2) Mais espaço do fim do cabeçalho até o conteúdo (antes: 205)  # alteração realizada aqui
         bottomMargin=60,
         leftMargin=36,
         rightMargin=36
     )
 
-    # Removido o título "Proposta de Alocação de Carteira" e deixado apenas um espaçador inicial
-    elems.append(Spacer(1, 18))  # alteração realizada aqui: garante “respiro” depois do cabeçalho
+    # Mantemos apenas um espaçador inicial leve
+    elems.append(Spacer(1, 18))
 
     buf1, color_map = make_doughnut_atual(df_dist, 'Percentual')
     buf2 = make_doughnut_modelo(df_modelo, 'Percentual Ideal', color_map)
