@@ -12,7 +12,7 @@ import os
 import matplotlib.pyplot as plt
 from utils.cores import PALETTE
 import unicodedata
-from PyPDF2 import PdfReader, PdfWriter  # alteração realizada aqui
+from PyPDF2 import PdfReader, PdfWriter  # para concatenar PDFs (capa/contra/última)
 
 # =========================
 # Estado global simples (para header)
@@ -20,6 +20,9 @@ from PyPDF2 import PdfReader, PdfWriter  # alteração realizada aqui
 patrimonio_total = 0.0
 CLIENTE_NOME = ""
 NOME_ASSESSOR = ""
+
+# Cor primária de texto
+PRIMARY_COLOR = colors.HexColor("#122940")  # alteração realizada aqui
 
 def _format_number_br(valor: float) -> str:
     try:
@@ -47,25 +50,28 @@ def draw_header(canvas, doc):
     except Exception as e:
         print("Erro ao carregar logo:", e)
 
-    # Título à direita
+    # Título à direita (permanece branco para contraste na faixa azul)
     canvas.setFillColor(colors.whitesmoke)
     canvas.setFont("Helvetica", 18)
     canvas.drawRightString(page_width - 10, page_height - 28, "Realocação de Carteira")
 
-    # Bloco de informações do cliente
+    # Bloco de informações do cliente (na cor primária)
     canvas.setFont("Helvetica-Bold", 12)
-    canvas.setFillColor(colors.black)
+    canvas.setFillColor(PRIMARY_COLOR)  # alteração realizada aqui
     canvas.drawString(10, page_height - 80, (CLIENTE_NOME or "").upper())
 
     canvas.setFont("Helvetica-Bold", 10)
     right_base_y = page_height - 60
     info_spacing = 10
 
+    # Rótulos à direita (mantêm branco por estarem na faixa azul)
+    canvas.setFillColor(colors.whitesmoke)
     canvas.drawRightString(page_width - 110, right_base_y - 1 * info_spacing, "Assessor de Investimentos")
     canvas.drawRightString(page_width - 110, right_base_y - 2.5 * info_spacing, "Patrimônio Total")
 
+    # Valores à direita (na cor primária)
     canvas.setFont("Helvetica", 10)
-    canvas.setFillColor(colors.black)
+    canvas.setFillColor(PRIMARY_COLOR)  # alteração realizada aqui
     canvas.drawRightString(page_width - 10, right_base_y - 1 * info_spacing, NOME_ASSESSOR or "")
     canvas.drawRightString(
         page_width - 10,
@@ -73,8 +79,8 @@ def draw_header(canvas, doc):
         f"R$ {_format_number_br(patrimonio_total)}"
     )
 
-    # Linha separadora
-    canvas.setStrokeColor(colors.black)
+    # Linha final separadora (na cor primária)
+    canvas.setStrokeColor(PRIMARY_COLOR)  # alteração realizada aqui
     canvas.setLineWidth(0.5)
     canvas.line(10, page_height - 100, page_width - 10, page_height - 100)
 
@@ -91,7 +97,7 @@ def draw_footer(canvas, doc):
         name="FooterStyle",
         fontSize=5,
         leading=7,
-        textColor=colors.black,
+        textColor=PRIMARY_COLOR,  # alteração realizada aqui
         alignment=TA_CENTER,
         spaceBefore=2,
         spaceAfter=2
@@ -162,6 +168,11 @@ def generate_pdf(
     patrimonio_total = pd.to_numeric(df_dist["valor"], errors="coerce").fillna(0.0).sum()
 
     styles = getSampleStyleSheet()
+
+    # Define a cor da fonte nos estilos padrões (Normal, Title, Heading2, etc.)
+    for s in styles.byName.values():  # alteração realizada aqui
+        s.textColor = PRIMARY_COLOR
+
     elems = []
 
     # -------------------------
@@ -230,8 +241,14 @@ def generate_pdf(
     buf2 = make_doughnut_modelo(df_modelo, 'Percentual Ideal', color_map)
 
     comp_data = [["Atual (%)", "Classificação", "Modelo (%)"]]
-    header_small = ParagraphStyle(name="HeaderSmall", parent=styles["Normal"], alignment=TA_CENTER,
-                                  fontSize=8, leading=8, textColor=colors.whitesmoke)
+    header_small = ParagraphStyle(
+        name="HeaderSmall",
+        parent=styles["Normal"],
+        alignment=TA_CENTER,
+        fontSize=8,
+        leading=8,
+        textColor=colors.whitesmoke  # mantém branco no cabeçalho da tabela para contraste
+    )
     comp_data[0] = [Paragraph(c, header_small) for c in comp_data[0]]
 
     temp_df = pd.DataFrame({
@@ -247,7 +264,8 @@ def generate_pdf(
         b = InnerTable([[" "]], colWidths=4, rowHeights=12)
         b.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,-1), colors.HexColor(color) if isinstance(color, str) else color),
                                ("BOX", (0,0), (-1,-1), 0, colors.white)]))
-        small = ParagraphStyle("Small", parent=styles["Normal"], fontSize=8, alignment=TA_RIGHT if align=="right" else TA_LEFT)
+        small = ParagraphStyle("Small", parent=styles["Normal"], fontSize=8, textColor=PRIMARY_COLOR,
+                               alignment=TA_RIGHT if align=="right" else TA_LEFT)  # alteração realizada aqui
         if align == "left":
             return Table([[b, Spacer(1,0), Paragraph(percent, small)]], colWidths=[4,1,None],
                          style=[("VALIGN",(0,0),(-1,-1),"MIDDLE"), ("LEFTPADDING",(0,0),(-1,-1),0), ("RIGHTPADDING",(0,0),(-1,-1),0)])
@@ -256,7 +274,8 @@ def generate_pdf(
                          style=[("VALIGN",(0,0),(-1,-1),"MIDDLE"), ("LEFTPADDING",(0,0),(-1,-1),0), ("RIGHTPADDING",(0,0),(-1,-1),0)])
 
     rows = []
-    small_center = ParagraphStyle("SmallCenter", parent=styles["Normal"], alignment=TA_CENTER, fontSize=7, wordWrap='CJK', keepAll=True)
+    small_center = ParagraphStyle("SmallCenter", parent=styles["Normal"], alignment=TA_CENTER, fontSize=7,
+                                  wordWrap='CJK', keepAll=True, textColor=PRIMARY_COLOR)  # alteração realizada aqui
     for _, r in temp_df.iterrows():
         color = color_map.get(r["Classificação"], "#000000")
         rows.append([bar(color, "left", r["Atual"]), Paragraph(str(r["Classificação"]), small_center), bar(color, "right", r["Modelo"])])
@@ -270,17 +289,23 @@ def generate_pdf(
         ('RIGHTPADDING', (-1,1), (-1,-1), 0),
         ('TOPPADDING', (0,0), (-1,-1), 2),
         ('BOTTOMPADDING', (0,0), (-1,-1), 2),
-        ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
+        ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),  # header
         ('BACKGROUND', (0,0), (-1,0), colors.gray),
+        ('TEXTCOLOR', (0,1), (-1,-1), PRIMARY_COLOR),      # corpo na cor primária (alteração)
     ]))
 
     def titulo_com_traco(texto):
-        sub = ParagraphStyle("SubHeader", parent=styles["Normal"], alignment=TA_CENTER, fontSize=9, spaceAfter=2, textTransform='uppercase')
-        return Table([[Paragraph(texto, sub)],[Table([[""]], colWidths="100%", style=[("LINEBELOW",(0,0),(-1,-1),0,colors.black)])]],
-                     hAlign='CENTER', style=[("BOTTOMPADDING",(0,0),(-1,-1),0), ("TOPPADDING",(0,1),(-1,1),-12)])
+        sub = ParagraphStyle("SubHeader", parent=styles["Normal"], alignment=TA_CENTER,
+                             fontSize=9, spaceAfter=2, textColor=PRIMARY_COLOR, textTransform='uppercase')  # alteração
+        return Table([[Paragraph(texto, sub)],
+                      [Table([[""]], colWidths="100%", style=[("LINEBELOW",(0,0),(-1,-1),0, PRIMARY_COLOR)])]],  # alteração
+                     hAlign='CENTER',
+                     style=[("BOTTOMPADDING",(0,0),(-1,-1),0), ("TOPPADDING",(0,1),(-1,1),-12)])
 
-    grafico_atual    = Table([[titulo_com_traco("CARTEIRA ATUAL")],[Image(buf1, width=130, height=130)]], rowHeights=[19,None], hAlign='CENTER')
-    grafico_sugerido = Table([[titulo_com_traco("CARTEIRA PROPOSTA")],[Image(buf2, width=130, height=130)]], rowHeights=[19,None], hAlign='CENTER')
+    grafico_atual    = Table([[titulo_com_traco("CARTEIRA ATUAL")],[Image(buf1, width=130, height=130)]],
+                             rowHeights=[19,None], hAlign='CENTER')
+    grafico_sugerido = Table([[titulo_com_traco("CARTEIRA PROPOSTA")],[Image(buf2, width=130, height=130)]],
+                             rowHeights=[19,None], hAlign='CENTER')
 
     elems.append(Table([[grafico_atual, comp_tbl, grafico_sugerido]], colWidths=[155,230,155], hAlign='CENTER',
                        style=[('VALIGN',(0,0),(-1,-1),'TOP'), ('ALIGN',(0,0),(-1,-1),'CENTER')]))
@@ -305,11 +330,17 @@ def generate_pdf(
 
     tbl1 = Table([dist_fmt.columns.tolist()] + dist_fmt.values.tolist())
     tbl2 = Table([modelo_fmt.columns.tolist()] + modelo_fmt.values.tolist())
-    styl = TableStyle([('BACKGROUND',(0,0),(-1,0),colors.gray), ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
-                       ('GRID',(0,0),(-1,-1),0.5,colors.black), ('ALIGN',(0,0),(-1,-1),'CENTER'), ('VALIGN',(0,0),(-1,-1),'TOP')])
+    styl = TableStyle([
+        ('BACKGROUND',(0,0),(-1,0),colors.gray),
+        ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
+        ('TEXTCOLOR',(0,1),(-1,-1),PRIMARY_COLOR),  # corpo na cor primária (alteração)
+        ('GRID',(0,0),(-1,-1),0.5,colors.black),
+        ('ALIGN',(0,0),(-1,-1),'CENTER'),
+        ('VALIGN',(0,0),(-1,-1),'TOP'),
+    ])
     tbl1.setStyle(styl); tbl2.setStyle(styl)
 
-    title_center = ParagraphStyle(name="CenteredTitle", parent=styles["Heading2"], alignment=TA_CENTER)
+    title_center = ParagraphStyle(name="CenteredTitle", parent=styles["Heading2"], alignment=TA_CENTER, textColor=PRIMARY_COLOR)  # alteração
     elems.append(Table([[Paragraph("Carteira Atual", title_center), Paragraph("Carteira Proposta", title_center)]],
                        colWidths=[doc.width/2, doc.width/2], hAlign='CENTER'))
     elems.append(Table([[tbl1, tbl2]], colWidths=[doc.width/2, doc.width/2], hAlign='CENTER',
@@ -317,7 +348,7 @@ def generate_pdf(
 
     # Página seguinte — Sugestão de Carteira (detalhada)
     elems.append(PageBreak())
-    elems.append(Paragraph("Sugestão de Carteira", styles["Heading2"]))
+    elems.append(Paragraph("Sugestão de Carteira", styles["Heading2"]))  # Heading2 já usa PRIMARY_COLOR
     elems.append(Spacer(1, 12))
 
     data = [["Ativo", "Capital Alocado", "% PL"]]
@@ -346,11 +377,19 @@ def generate_pdf(
     tbl = Table(data, colWidths=[doc.width*0.6, doc.width*0.2, doc.width*0.2], hAlign="LEFT", repeatRows=1)
     style = TableStyle([
         ("GRID",(0,0),(-1,-1),0.5,colors.black),
-        ("BACKGROUND",(0,0),(-1,0),colors.gray), ("TEXTCOLOR",(0,0),(-1,0),colors.whitesmoke),
-        ("FONTNAME",(0,0),(-1,0),"Helvetica-Bold"), ("FONTSIZE",(0,0),(-1,0),10),
-        ("ALIGN",(0,0),(-1,0),"CENTER"), ("VALIGN",(0,0),(-1,0),"MIDDLE"),
-        ("FONTNAME",(0,1),(-1,-1),"Helvetica"), ("FONTSIZE",(0,1),(-1,-1),8),
-        ("ALIGN",(0,1),(0,-1),"LEFT"), ("ALIGN",(1,1),(-1,-1),"CENTER"), ("VALIGN",(0,1),(-1,-1),"MIDDLE"),
+        ("BACKGROUND",(0,0),(-1,0),colors.gray),
+        ("TEXTCOLOR",(0,0),(-1,0),colors.whitesmoke),
+        ("TEXTCOLOR",(0,1),(-1,-1),PRIMARY_COLOR),  # corpo na cor primária (alteração)
+        ("FONTNAME",(0,0),(-1,0),"Helvetica-Bold"),
+        ("FONTSIZE",(0,0),(-1,0),10),
+        ("ALIGN",(0,0),(-1,0),"CENTER"),
+        ("VALIGN",(0,0),(-1,0),"MIDDLE"),
+
+        ("FONTNAME",(0,1),(-1,-1),"Helvetica"),
+        ("FONTSIZE",(0,1),(-1,-1),8),
+        ("ALIGN",(0,1),(0,-1),"LEFT"),
+        ("ALIGN",(1,1),(-1,-1),"CENTER"),
+        ("VALIGN",(0,1),(-1,-1),"MIDDLE"),
     ])
     for i in classification_rows:
         style.add("BACKGROUND",(0,i),(-1,i),colors.lightgrey)
