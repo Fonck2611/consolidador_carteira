@@ -48,8 +48,8 @@ CONTACT_LINES = [
 # -------------------------
 # Fontes (fixadas para Helvetica, conforme solicitado)
 # -------------------------
-BASE_FONT = "Helvetica"        # alteração realizada aqui
-BOLD_FONT = "Helvetica-Bold"   # alteração realizada aqui
+BASE_FONT = "Helvetica"        # (mantido)
+BOLD_FONT = "Helvetica-Bold"   # (mantido)
 
 # -------------------------
 # Utilidades
@@ -96,16 +96,16 @@ def draw_header(canvas, doc):
 
     # ====== Título e data (lado esquerdo) ======
     canvas.setFillColor(PRIMARY_COLOR)
-    canvas.setFont(BOLD_FONT, 18)  # alteração realizada aqui (antes 22)
+    canvas.setFont(BOLD_FONT, 18)  # alteração realizada aqui (título em 18)
     canvas.drawString(left, top_y, "Realocação de Portfólio")
 
-    canvas.setFont(BASE_FONT, 10)  # alteração realizada aqui (antes 11)
+    canvas.setFont(BASE_FONT, 10)  # alteração realizada aqui (data em 10)
     canvas.drawString(left, top_y - 20, DATA_HOJE_STR or _data_hoje_br())
 
     # ====== Contato (topo direito) ======
     contact_x = right
     contact_y = top_y
-    canvas.setFont(BASE_FONT, 7)  # alteração realizada aqui (antes 9)
+    canvas.setFont(BASE_FONT, 7)  # alteração realizada aqui (contato/endereço em 7)
     canvas.setFillColor(PRIMARY_COLOR)
     line_gap = 11
     for i, line in enumerate(CONTACT_LINES):
@@ -217,33 +217,38 @@ def draw_header(canvas, doc):
     canvas.restoreState()
 
 def draw_footer(canvas, doc):
-    """Substitui o rodapé por uma linha centralizada e o logo utils/Logo_..."""
+    """
+    Rodapé com o ÍCONE à esquerda e uma linha longa, como na referência enviada.
+    """
     canvas.saveState()
     page_width, _ = A4
 
-    # Linha horizontal centralizada (curta), acima do logo
-    line_len = 220  # largura da linha (pt)  # alteração realizada aqui
-    y_line = 40                               # posição vertical da linha   # alteração realizada aqui
-    x_start = (page_width - line_len) / 2
-    canvas.setStrokeColor(PRIMARY_COLOR)
-    canvas.setLineWidth(0.8)                  # alteração realizada aqui
-    canvas.line(x_start, y_line, x_start + line_len, y_line)
-
-    # Logo centralizado
+    left = 36                           # mesmo leftMargin padrão
+    right = page_width - 36
+    # --- Logo (ícone) à esquerda ---
     base_dir = os.path.dirname(__file__)
-    logo_path = os.path.join(base_dir, "Logo_Criteria_Financial_Group_Cor_V2_RGB-01.png")  # alteração realizada aqui
+    logo_path = os.path.join(base_dir, "Logo_Criteria_Financial_Group_Cor_V2_RGB-01.png")
+    x_logo = left                       # alteração realizada aqui
+    target_w = 18                       # largura do ícone em pt (pequeno)  # alteração realizada aqui
+    y_logo = 14                         # altura do logo a partir da base    # alteração realizada aqui
     try:
         img = ImageReader(logo_path)
         iw, ih = img.getSize()
-        target_w = 140                        # largura alvo do logo (pt)   # alteração realizada aqui
         scale = target_w / float(iw)
         target_h = ih * scale
-        x_img = (page_width - target_w) / 2
-        y_img = 12                            # altura do logo a partir da base  # alteração realizada aqui
-        canvas.drawImage(img, x_img, y_img, width=target_w, height=target_h, mask='auto')
+        canvas.drawImage(img, x_logo, y_logo, width=target_w, height=target_h, mask='auto')  # alteração realizada aqui
+        # Linha alinhada verticalmente ao centro do ícone e começando após ele:
+        y_line = y_logo + target_h / 2
+        x_line_start = x_logo + target_w + 18   # gap após o ícone               # alteração realizada aqui
     except Exception:
-        # Se o logo não for encontrado, não quebra o PDF
-        pass
+        # se o logo não estiver disponível, coloca a linha em posição padrão
+        y_line = 22
+        x_line_start = left + 50
+
+    x_line_end = right                       # vai até próximo da margem direita  # alteração realizada aqui
+    canvas.setStrokeColor(PRIMARY_COLOR)
+    canvas.setLineWidth(0.8)                 # linha fina e nítida                # alteração realizada aqui
+    canvas.line(x_line_start, y_line, x_line_end, y_line)  # alteração realizada aqui
 
     canvas.restoreState()
 
@@ -296,7 +301,7 @@ def generate_pdf(
 
     styles = getSampleStyleSheet()
     # Força Helvetica em todos os ParagraphStyles
-    for s in styles.byName.values():  # alteração realizada aqui
+    for s in styles.byName.values():
         s.textColor = PRIMARY_COLOR
         s.fontName = BASE_FONT
 
@@ -354,7 +359,7 @@ def generate_pdf(
         buffer_relatorio,
         pagesize=A4,
         topMargin=220,   # respiro após o cabeçalho
-        bottomMargin=70, # um pouco mais alto para o novo rodapé com logo  # alteração realizada aqui
+        bottomMargin=70, # espaço para o novo rodapé
         leftMargin=36,
         rightMargin=36
     )
