@@ -46,10 +46,10 @@ CONTACT_LINES = [
 ]
 
 # -------------------------
-# Fontes (Helvetica, conforme solicitado)
+# Fontes (Helvetica)
 # -------------------------
-BASE_FONT = "Helvetica"        # alteração realizada aqui
-BOLD_FONT = "Helvetica-Bold"   # alteração realizada aqui
+BASE_FONT = "Helvetica"
+BOLD_FONT = "Helvetica-Bold"
 
 # -------------------------
 # Utilidades
@@ -92,20 +92,20 @@ def draw_header(canvas, doc):
 
     left = doc.leftMargin
     right = page_width - doc.rightMargin
-    top_y = page_height - 54  # posição rebaixada
+    top_y = page_height - 36  # ↓ aproximado do topo (antes: 54)  # alteração realizada aqui
 
     # ====== Título e data (lado esquerdo) ======
     canvas.setFillColor(PRIMARY_COLOR)
-    canvas.setFont(BOLD_FONT, 18)  # alteração realizada aqui (título em 18)
+    canvas.setFont(BOLD_FONT, 18)
     canvas.drawString(left, top_y, "Realocação de Portfólio")
 
-    canvas.setFont(BASE_FONT, 10)  # alteração realizada aqui (data em 10)
+    canvas.setFont(BASE_FONT, 10)
     canvas.drawString(left, top_y - 20, DATA_HOJE_STR or _data_hoje_br())
 
     # ====== Contato (topo direito) ======
     contact_x = right
     contact_y = top_y
-    canvas.setFont(BASE_FONT, 7)  # alteração realizada aqui (contato em 7)
+    canvas.setFont(BASE_FONT, 7)
     canvas.setFillColor(PRIMARY_COLOR)
     line_gap = 11
     for i, line in enumerate(CONTACT_LINES):
@@ -226,30 +226,29 @@ def draw_footer(canvas, doc):
 
     # --- Logo inferior esquerdo ---
     base_dir = os.path.dirname(__file__)
-    logo_path = os.path.join(base_dir, "Logo_Criteria_Financial_Group_Cor_V2_RGB-01.png")  # alteração realizada aqui
-    logo_w_target = 22  # largura do logo em pt (pequeno, como no mock)  # alteração realizada aqui
+    logo_path = os.path.join(base_dir, "Logo_Criteria_Financial_Group_Cor_V2_RGB-01.png")
+    logo_w_target = 22
     try:
         img = ImageReader(logo_path)
         iw, ih = img.getSize()
         scale = logo_w_target / float(iw)
         logo_w = logo_w_target
         logo_h = ih * scale
-        x_img = left  # canto inferior esquerdo respeitando a margem esquerda  # alteração realizada aqui
-        y_img = 12    # afastamento da borda inferior                              # alteração realizada aqui
+        x_img = left
+        y_img = 12
         canvas.drawImage(img, x_img, y_img, width=logo_w, height=logo_h, mask='auto')
     except Exception:
-        # se der erro no logo, apenas não desenha
         logo_w = 0
         logo_h = 0
         x_img = left
         y_img = 12
 
-    # --- Linha horizontal alinhada ao centro do logo, indo até a margem direita ---
-    y_line = y_img + (logo_h / 2 if logo_h else 10)                       # altura no meio do logo  # alteração realizada aqui
-    x_start = x_img + logo_w + 12                                         # começa depois do logo   # alteração realizada aqui
+    # --- Linha horizontal alinhada ao centro do logo ---
+    y_line = y_img + (logo_h / 2 if logo_h else 10)
+    x_start = x_img + logo_w + 12
     canvas.setStrokeColor(PRIMARY_COLOR)
     canvas.setLineWidth(0.6)
-    canvas.line(x_start, y_line, right, y_line)                            # até a margem direita    # alteração realizada aqui
+    canvas.line(x_start, y_line, right, y_line)
 
     canvas.restoreState()
 
@@ -301,8 +300,7 @@ def generate_pdf(
     APORTE_TEXT = (sugestao or {}).get("aporte_text", "Sem aporte") or "Sem aporte"
 
     styles = getSampleStyleSheet()
-    # Força Helvetica em todos os ParagraphStyles
-    for s in styles.byName.values():  # alteração realizada aqui
+    for s in styles.byName.values():
         s.textColor = PRIMARY_COLOR
         s.fontName = BASE_FONT
 
@@ -359,8 +357,8 @@ def generate_pdf(
     doc = SimpleDocTemplate(
         buffer_relatorio,
         pagesize=A4,
-        topMargin=220,   # respiro após o cabeçalho
-        bottomMargin=70, # espaço para o novo rodapé
+        topMargin=202,  # compensado para manter o mesmo respiro após mover o header para cima (antes: 220)  # alteração realizada aqui
+        bottomMargin=70,
         leftMargin=36,
         rightMargin=36
     )
