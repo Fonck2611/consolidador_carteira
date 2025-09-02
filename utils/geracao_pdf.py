@@ -81,15 +81,16 @@ def draw_header(canvas, doc):
 
     left = doc.leftMargin
     right = page_width - doc.rightMargin
-    top_y = page_height - 36  # margem visual superior
+    # top_y original era (page_height - 36). Abaixamos ~18 pts para “descer” o título e a data
+    top_y = page_height - 54  # alteração realizada aqui: baixa o bloco título/data ~0,6 cm
 
     # ====== Título e data (lado esquerdo) ======
     canvas.setFillColor(PRIMARY_COLOR)
     canvas.setFont("Helvetica-Bold", 22)
-    canvas.drawString(left, top_y, "Realocação de Portfólio")
+    canvas.drawString(left, top_y, "Realocação de Portfólio")  # mantém o texto, só ficou mais baixo
 
     canvas.setFont("Helvetica", 11)
-    canvas.drawString(left, top_y - 18, DATA_HOJE_STR or _data_hoje_br())
+    canvas.drawString(left, top_y - 20, DATA_HOJE_STR or _data_hoje_br())  # alteração realizada aqui: -20 (antes -18) para mais respiro
 
     # ====== Contato (topo direito, múltiplas linhas) ======
     contact_x = right
@@ -102,7 +103,8 @@ def draw_header(canvas, doc):
     after_contact_y = contact_y - (len(CONTACT_LINES) - 1) * line_gap
 
     # ====== Linha divisória ======
-    line_y = min(top_y - 32, after_contact_y - 20)  # garante espaço após contato
+    # aumentamos o espaçamento abaixo do cabeçalho para evitar sobreposição
+    line_y = min(top_y - 38, after_contact_y - 26)  # alteração realizada aqui: antes -32/-20
     canvas.setStrokeColor(PRIMARY_COLOR)
     canvas.setLineWidth(0.6)
     canvas.line(left, line_y, right, line_y)
@@ -232,7 +234,7 @@ def draw_header(canvas, doc):
     canvas.setFont("Helvetica", 10)
     canvas.drawString(perf_left + 6, row2_field_y - field_height + 5, APORTE_TEXT or "Sem aporte")
 
-    # >>> REMOVIDO: bloco "Assessor de Investimentos / Patrimônio Total" no topo direito  # alteração realizada aqui
+    # >>> REMOVIDO: bloco "Assessor de Investimentos / Patrimônio Total" no topo direito
 
     canvas.restoreState()
 
@@ -375,12 +377,16 @@ def generate_pdf(
     # ===== Conteúdo do relatório =====
     buffer_relatorio = io.BytesIO()
     doc = SimpleDocTemplate(
-        buffer_relatorio, pagesize=A4, topMargin=180, bottomMargin=60, leftMargin=36, rightMargin=36
+        buffer_relatorio,
+        pagesize=A4,
+        topMargin=205,  # alteração realizada aqui: era 180. Mais espaço livre após o cabeçalho para evitar sobreposição.
+        bottomMargin=60,
+        leftMargin=36,
+        rightMargin=36
     )
 
-    elems.append(Spacer(1, 5))
-    elems.append(Paragraph("Proposta de Alocação de Carteira", styles["Title"]))
-    elems.append(Spacer(1, 12))
+    # Removido o título "Proposta de Alocação de Carteira" e deixado apenas um espaçador inicial
+    elems.append(Spacer(1, 18))  # alteração realizada aqui: garante “respiro” depois do cabeçalho
 
     buf1, color_map = make_doughnut_atual(df_dist, 'Percentual')
     buf2 = make_doughnut_modelo(df_modelo, 'Percentual Ideal', color_map)
