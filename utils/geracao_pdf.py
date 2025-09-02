@@ -6,14 +6,21 @@ from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
 from reportlab.lib.utils import ImageReader
+from reportlab.pdfbase import pdfmetrics                                # alteração realizada aqui
+from reportlab.pdfbase.ttfonts import TTFont                             # alteração realizada aqui
 import pandas as pd
 import io
 import os
-import matplotlib.pyplot as plt
-from utils.cores import PALETTE
 import unicodedata
 from PyPDF2 import PdfReader, PdfWriter
 from datetime import datetime
+
+# === Matplotlib (força backend headless para não “sumir” os gráficos) ===
+import matplotlib                                                         # alteração realizada aqui
+matplotlib.use("Agg")                                                    # alteração realizada aqui
+import matplotlib.pyplot as plt
+
+from utils.cores import PALETTE
 
 # =========================
 # Estado global simples (para header)
@@ -39,6 +46,48 @@ CONTACT_LINES = [
     "+55 (11) 3124-9696",
     "www.criteriafg.com.br",
 ]
+
+# -------------------------
+# Fontes (garante acentuação correta)
+# -------------------------
+def _register_fonts() -> tuple[str, str]:
+    """
+    Tenta registrar DejaVuSans (Unicode). Se não achar, usa Helvetica padrão.
+    Retorna (font_normal, font_bold).
+    """
+    base_dir = os.path.dirname(__file__)
+    candidates = [
+        os.path.join(base_dir, "fonts"),
+        os.path.join(os.path.dirname(base_dir), "fonts"),
+        "C:\\Windows\\Fonts",
+        "/usr/share/fonts/truetype/dejavu",
+        "/usr/local/share/fonts",
+    ]
+    regular = bold = None
+    for d in candidates:
+        try:
+            r = os.path.join(d, "DejaVuSans.ttf")
+            b = os.path.join(d, "DejaVuSans-Bold.ttf")
+            if os.path.exists(r) and os.path.exists(b):
+                regular, bold = r, b
+                break
+        except Exception:
+            pass
+    if regular and bold:
+        pdfmetrics.registerFont(TTFont("DejaVuSans", regular))           # alteração realizada aqui
+        pdfmetrics.registerFont(TTFont("DejaVuSans-Bold", bold))         # alteração realizada aqui
+        pdfmetrics.registerFontFamily(                                   # alteração realizada aqui
+            "DejaVuSans",
+            normal="DejaVuSans",
+            bold="DejaVuSans-Bold",
+            italic="DejaVuSans",
+            boldItalic="DejaVuSans-Bold",
+        )
+        return "DejaVuSans", "DejaVuSans-Bold"
+    # Fallback
+    return "Helvetica", "Helvetica-Bold"                                 # alteração realizada aqui
+
+BASE_FONT, BOLD_FONT = _register_fonts()                                 # alteração realizada aqui
 
 # -------------------------
 # Utilidades
@@ -85,16 +134,16 @@ def draw_header(canvas, doc):
 
     # ====== Título e data (lado esquerdo) ======
     canvas.setFillColor(PRIMARY_COLOR)
-    canvas.setFont("Helvetica-Bold", 22)
+    canvas.setFont(BOLD_FONT, 22)                                        # alteração realizada aqui
     canvas.drawString(left, top_y, "Realocação de Portfólio")
 
-    canvas.setFont("Helvetica", 11)
+    canvas.setFont(BASE_FONT, 11)                                        # alteração realizada aqui
     canvas.drawString(left, top_y - 20, DATA_HOJE_STR or _data_hoje_br())
 
     # ====== Contato (topo direito) ======
     contact_x = right
     contact_y = top_y
-    canvas.setFont("Helvetica", 9)
+    canvas.setFont(BASE_FONT, 9)                                         # alteração realizada aqui
     canvas.setFillColor(PRIMARY_COLOR)
     line_gap = 11
     for i, line in enumerate(CONTACT_LINES):
@@ -102,7 +151,7 @@ def draw_header(canvas, doc):
     after_contact_y = contact_y - (len(CONTACT_LINES) - 1) * line_gap
 
     # ====== Linha divisória ======
-    line_y = min(top_y - 34, after_contact_y - 16)  # alteração realizada aqui (aproxima da área de contato)
+    line_y = min(top_y - 34, after_contact_y - 16)  # aproxima da área de contato (pedido)
     canvas.setStrokeColor(PRIMARY_COLOR)
     canvas.setLineWidth(0.6)
     canvas.line(left, line_y, right, line_y)
@@ -122,19 +171,19 @@ def draw_header(canvas, doc):
 
     # Nome do cliente
     canvas.setFillColor(label_color)
-    canvas.setFont("Helvetica-Bold", 9)
+    canvas.setFont(BOLD_FONT, 9)                                         # alteração realizada aqui
     canvas.drawString(left, row1_label_y, "Nome do cliente")
 
     canvas.setFillColor(field_bg)
     canvas.roundRect(left, row1_field_y - field_height + 2, col_width, field_height, field_radius, stroke=0, fill=1)
     canvas.setFillColor(PRIMARY_COLOR)
-    canvas.setFont("Helvetica-Bold", 10)
+    canvas.setFont(BOLD_FONT, 10)                                        # alteração realizada aqui
     canvas.drawString(left + 6, row1_field_y - field_height + 5, (CLIENTE_NOME or "").upper())
 
     # Perfil de risco sugerido (label)
     perf_left = left + col_width + col_gap
     canvas.setFillColor(label_color)
-    canvas.setFont("Helvetica-Bold", 9)
+    canvas.setFont(BOLD_FONT, 9)                                         # alteração realizada aqui
     canvas.drawString(perf_left, row1_label_y, "Perfil de risco sugerido")
 
     # ---- Pílulas ocupando 100% da largura (sem caixa de fundo) ----
@@ -145,13 +194,10 @@ def draw_header(canvas, doc):
     pill_font = 8
     pad_x = 8
 
-    pill_width = (col_width - (len(pills) - 1) * pill_gap) / len(pills)  # alteração realizada aqui
-
-    # Ajuste de fonte/padding para caber dentro de cada pílula fixa
+    pill_width = (col_width - (len(pills) - 1) * pill_gap) / len(pills)  # pílulas “flex” ocupando 100%
     def fits(font_size, padding):
-        maxw = max(canvas.stringWidth(p, "Helvetica-Bold", font_size) for p in pills)
+        maxw = max(canvas.stringWidth(p, BOLD_FONT, font_size) for p in pills)  # alteração realizada aqui
         return (maxw + 2 * padding) <= pill_width
-
     while pill_font > 6 and not fits(pill_font, pad_x):
         pill_font -= 1
         if not fits(pill_font, pad_x) and pad_x > 6:
@@ -159,7 +205,7 @@ def draw_header(canvas, doc):
 
     start_x = perf_left
     start_y = row1_field_y - field_height + 2
-    canvas.setFont("Helvetica-Bold", pill_font)
+    canvas.setFont(BOLD_FONT, pill_font)                                 # alteração realizada aqui
 
     def draw_pill_fixed(x, y, text, selected, width):
         if selected:
@@ -175,33 +221,33 @@ def draw_header(canvas, doc):
 
     px = start_x
     for p in pills:
-        draw_pill_fixed(px, start_y, p, p == sel, pill_width)  # alteração realizada aqui
+        draw_pill_fixed(px, start_y, p, p == sel, pill_width)
         px += pill_width + pill_gap
 
     # Linha 2: Nome de assessor | Aporte
-    row2_label_y = row1_field_y - field_height - 12  # alteração realizada aqui (uma linha apenas de pílulas)
+    row2_label_y = row1_field_y - field_height - 12
     row2_field_y = row2_label_y - 14
 
     # Nome de assessor
     canvas.setFillColor(label_color)
-    canvas.setFont("Helvetica-Bold", 9)
+    canvas.setFont(BOLD_FONT, 9)                                         # alteração realizada aqui
     canvas.drawString(left, row2_label_y, "Nome de assessor")
 
     canvas.setFillColor(field_bg)
     canvas.roundRect(left, row2_field_y - field_height + 2, col_width, field_height, field_radius, stroke=0, fill=1)
     canvas.setFillColor(PRIMARY_COLOR)
-    canvas.setFont("Helvetica-Bold", 10)
+    canvas.setFont(BOLD_FONT, 10)                                        # alteração realizada aqui
     canvas.drawString(left + 6, row2_field_y - field_height + 5, (NOME_ASSESSOR or "").upper())
 
     # Aporte
     canvas.setFillColor(label_color)
-    canvas.setFont("Helvetica-Bold", 9)
+    canvas.setFont(BOLD_FONT, 9)                                         # alteração realizada aqui
     canvas.drawString(perf_left, row2_label_y, "Aporte")
 
     canvas.setFillColor(field_bg)
     canvas.roundRect(perf_left, row2_field_y - field_height + 2, col_width, field_height, field_radius, stroke=0, fill=1)
     canvas.setFillColor(PRIMARY_COLOR)
-    canvas.setFont("Helvetica", 10)
+    canvas.setFont(BASE_FONT, 10)                                        # alteração realizada aqui
     canvas.drawString(perf_left + 6, row2_field_y - field_height + 5, APORTE_TEXT or "Sem aporte")
 
     canvas.restoreState()
@@ -215,6 +261,7 @@ def draw_footer(canvas, doc):
     styles = getSampleStyleSheet()
     footer_style = ParagraphStyle(
         name="FooterStyle",
+        fontName=BASE_FONT,                                               # alteração realizada aqui
         fontSize=5,
         leading=7,
         textColor=PRIMARY_COLOR,
@@ -248,7 +295,7 @@ def draw_footer(canvas, doc):
 def generate_pdf(
     dist_df: pd.DataFrame,
     modelo_df: pd.DataFrame,
-    resumo_df: pd.DataFrame,
+    resumo_df: pd.DataFrame,   # mantido para compatibilidade
     sugestao: dict,
     ativos_df: pd.DataFrame,
     cliente_nome: str = "",
@@ -290,8 +337,9 @@ def generate_pdf(
     APORTE_TEXT = (sugestao or {}).get("aporte_text", "Sem aporte") or "Sem aporte"
 
     styles = getSampleStyleSheet()
-    for s in styles.byName.values():
+    for s in styles.byName.values():                                     # alteração realizada aqui
         s.textColor = PRIMARY_COLOR
+        s.fontName = BASE_FONT
 
     elems = []
 
@@ -307,12 +355,13 @@ def generate_pdf(
         fig, ax = plt.subplots(figsize=(4, 4))
         ax.pie(
             sizes, labels=None, startangle=90, counterclock=False, colors=colors_list,
-            wedgeprops={'width': 0.3, 'edgecolor': 'white'}
+            wedgeprops={'width': 0.30, 'edgecolor': 'white'}
         )
         ax.axis('equal')
         plt.tight_layout()
         fig.savefig(buf, format='PNG', dpi=150, bbox_inches='tight')
-        plt.close(fig); buf.seek(0)
+        plt.close(fig)
+        buf.seek(0)
         return buf, color_map
 
     def make_doughnut_modelo(df, percent_col, color_map):
@@ -333,12 +382,13 @@ def generate_pdf(
         fig, ax = plt.subplots(figsize=(4, 4))
         ax.pie(
             sizes, labels=None, startangle=90, counterclock=False, colors=colors_list,
-            wedgeprops={'width': 0.3, 'edgecolor': 'white'}
+            wedgeprops={'width': 0.30, 'edgecolor': 'white'}
         )
         ax.axis('equal')
         plt.tight_layout()
         fig.savefig(buf, format='PNG', dpi=150, bbox_inches='tight')
-        plt.close(fig); buf.seek(0)
+        plt.close(fig)
+        buf.seek(0)
         return buf
 
     # ===== Conteúdo do relatório =====
@@ -346,21 +396,22 @@ def generate_pdf(
     doc = SimpleDocTemplate(
         buffer_relatorio,
         pagesize=A4,
-        topMargin=240,  # garante respiro após o cabeçalho
+        topMargin=220,   # aumento de respiro após o cabeçalho, sem “sumir” os gráficos  # alteração realizada aqui
         bottomMargin=60,
         leftMargin=36,
         rightMargin=36
     )
 
-    elems.append(Spacer(1, 18))  # respiro inicial
+    elems.append(Spacer(1, 14))  # respiro inicial
 
-    buf1, color_map = make_doughnut_atual(df_dist, 'Percentual')
-    buf2 = make_doughnut_modelo(df_modelo, 'Percentual Ideal', color_map)
+    buf1, color_map = make_doughnut_atual(df_dist, "Percentual")
+    buf2 = make_doughnut_modelo(df_modelo, "Percentual Ideal", color_map)
 
+    # Tabela comparativa com barras
     comp_data = [["Atual (%)", "Classificação", "Modelo (%)"]]
     header_small = ParagraphStyle(
         name="HeaderSmall", parent=styles["Normal"], alignment=TA_CENTER,
-        fontSize=8, leading=8, textColor=colors.whitesmoke
+        fontName=BOLD_FONT, fontSize=8, leading=8, textColor=colors.whitesmoke  # alteração realizada aqui
     )
     comp_data[0] = [Paragraph(c, header_small) for c in comp_data[0]]
 
@@ -377,7 +428,7 @@ def generate_pdf(
         b = InnerTable([[" "]], colWidths=4, rowHeights=12)
         b.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,-1), colors.HexColor(color) if isinstance(color, str) else color),
                                ("BOX", (0,0), (-1,-1), 0, colors.white)]))
-        small = ParagraphStyle("Small", parent=styles["Normal"], fontSize=8, textColor=PRIMARY_COLOR,
+        small = ParagraphStyle("Small", parent=styles["Normal"], fontName=BASE_FONT, fontSize=8, textColor=PRIMARY_COLOR,  # alteração realizada aqui
                                alignment=TA_RIGHT if align=="right" else TA_LEFT)
         if align == "left":
             return Table([[b, Spacer(1,0), Paragraph(percent, small)]], colWidths=[4,1,None],
@@ -387,7 +438,7 @@ def generate_pdf(
                          style=[("VALIGN",(0,0),(-1,-1),"MIDDLE"), ("LEFTPADDING",(0,0),(-1,-1),0), ("RIGHTPADDING",(0,0),(-1,-1),0)])
 
     rows = []
-    small_center = ParagraphStyle("SmallCenter", parent=styles["Normal"], alignment=TA_CENTER, fontSize=7,
+    small_center = ParagraphStyle("SmallCenter", parent=styles["Normal"], alignment=TA_CENTER, fontName=BASE_FONT, fontSize=7,  # alteração realizada aqui
                                   wordWrap='CJK', keepAll=True, textColor=PRIMARY_COLOR)
     for _, r in temp_df.iterrows():
         color = color_map.get(r["Classificação"], "#000000")
@@ -405,11 +456,12 @@ def generate_pdf(
         ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
         ('BACKGROUND', (0,0), (-1,0), colors.gray),
         ('TEXTCOLOR', (0,1), (-1,-1), PRIMARY_COLOR),
+        ('GRID', (0,0), (-1,-1), 0.5, colors.black),                     # alteração realizada aqui (reforça grid)
     ]))
 
     def titulo_com_traco(texto):
         sub = ParagraphStyle("SubHeader", parent=styles["Normal"], alignment=TA_CENTER,
-                             fontSize=9, spaceAfter=2, textColor=PRIMARY_COLOR, textTransform='uppercase')
+                             fontName=BOLD_FONT, fontSize=9, spaceAfter=2, textColor=PRIMARY_COLOR, textTransform='uppercase')  # alteração
         return Table([[Paragraph(texto, sub)],
                       [Table([[""]], colWidths="100%", style=[("LINEBELOW",(0,0),(-1,-1),0, PRIMARY_COLOR)])]],
                      hAlign='CENTER',
@@ -441,19 +493,23 @@ def generate_pdf(
     modelo_fmt["% PL"]  = modelo_fmt["Percentual Ideal"].apply(lambda x: _format_number_br(x) + "%")
     modelo_fmt = modelo_fmt[["Classificação", "Valor", "% PL"]]
 
-    tbl1 = Table([dist_fmt.columns.tolist()] + dist_fmt.values.tolist())
-    tbl2 = Table([modelo_fmt.columns.tolist()] + modelo_fmt.values.tolist())
+    tbl1 = Table([dist_fmt.columns.tolist()] + dist_fmt.values.tolist(), hAlign='LEFT')
+    tbl2 = Table([modelo_fmt.columns.tolist()] + modelo_fmt.values.tolist(), hAlign='LEFT')
     styl = TableStyle([
         ('BACKGROUND',(0,0),(-1,0),colors.gray),
         ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
+        ('FONTNAME',(0,0),(-1,0),BOLD_FONT),                              # alteração realizada aqui
+        ('FONTNAME',(0,1),(-1,-1),BASE_FONT),                             # alteração realizada aqui
         ('TEXTCOLOR',(0,1),(-1,-1),PRIMARY_COLOR),
         ('GRID',(0,0),(-1,-1),0.5,colors.black),
         ('ALIGN',(0,0),(-1,-1),'CENTER'),
         ('VALIGN',(0,0),(-1,-1),'TOP'),
+        ('FONTSIZE',(0,0),(-1,0),10),
+        ('FONTSIZE',(0,1),(-1,-1),8),
     ])
     tbl1.setStyle(styl); tbl2.setStyle(styl)
 
-    title_center = ParagraphStyle(name="CenteredTitle", parent=styles["Heading2"], alignment=TA_CENTER, textColor=PRIMARY_COLOR)
+    title_center = ParagraphStyle(name="CenteredTitle", parent=styles["Heading2"], alignment=TA_CENTER, textColor=PRIMARY_COLOR, fontName=BOLD_FONT)  # alteração
     elems.append(Table([[Paragraph("Carteira Atual", title_center), Paragraph("Carteira Proposta", title_center)]],
                        colWidths=[doc.width/2, doc.width/2], hAlign='CENTER'))
     elems.append(Table([[tbl1, tbl2]], colWidths=[doc.width/2, doc.width/2], hAlign='CENTER',
@@ -461,7 +517,7 @@ def generate_pdf(
 
     # Página seguinte — Sugestão de Carteira (detalhada)
     elems.append(PageBreak())
-    elems.append(Paragraph("Sugestão de Carteira", styles["Heading2"]))
+    elems.append(Paragraph("Sugestão de Carteira", ParagraphStyle(name="H2", parent=styles["Heading2"], fontName=BOLD_FONT)))  # alteração realizada aqui
     elems.append(Spacer(1, 12))
 
     data = [["Ativo", "Capital Alocado", "% PL"]]
@@ -493,11 +549,11 @@ def generate_pdf(
         ("BACKGROUND",(0,0),(-1,0),colors.gray),
         ("TEXTCOLOR",(0,0),(-1,0),colors.whitesmoke),
         ("TEXTCOLOR",(0,1),(-1,-1),PRIMARY_COLOR),
-        ("FONTNAME",(0,0),(-1,0),"Helvetica-Bold"),
+        ("FONTNAME",(0,0),(-1,0),BOLD_FONT),                              # alteração realizada aqui
         ("FONTSIZE",(0,0),(-1,0),10),
         ("ALIGN",(0,0),(-1,0),"CENTER"),
         ("VALIGN",(0,0),(-1,0),"MIDDLE"),
-        ("FONTNAME",(0,1),(-1,-1),"Helvetica"),
+        ("FONTNAME",(0,1),(-1,-1),BASE_FONT),                             # alteração realizada aqui
         ("FONTSIZE",(0,1),(-1,-1),8),
         ("ALIGN",(0,1),(0,-1),"LEFT"),
         ("ALIGN",(1,1),(-1,-1),"CENTER"),
@@ -505,11 +561,11 @@ def generate_pdf(
     ])
     for i in classification_rows:
         style.add("BACKGROUND",(0,i),(-1,i),colors.lightgrey)
-        style.add("FONTNAME",(0,i),(-1,i),"Helvetica-Bold")
+        style.add("FONTNAME",(0,i),(-1,i),BOLD_FONT)
     tbl.setStyle(style)
     elems.append(tbl)
 
-    # Build do relatório
+    # Build do relatório — com header/footer
     def _on_page(canvas, doc):
         draw_header(canvas, doc)
         draw_footer(canvas, doc)
@@ -524,10 +580,19 @@ def generate_pdf(
     ultima_path  = os.path.join(base_dir, "ultima_pagina.pdf")
 
     writer = PdfWriter()
-    for p in PdfReader(capa_path).pages: writer.add_page(p)
-    for p in PdfReader(contra_path).pages: writer.add_page(p)
-    for p in PdfReader(buffer_relatorio).pages: writer.add_page(p)
-    for p in PdfReader(ultima_path).pages: writer.add_page(p)
+
+    # 1) Capa
+    for p in PdfReader(capa_path).pages:
+        writer.add_page(p)
+    # 2) Contra-capa
+    for p in PdfReader(contra_path).pages:
+        writer.add_page(p)
+    # 3) Relatório
+    for p in PdfReader(buffer_relatorio).pages:
+        writer.add_page(p)
+    # 4) Última página
+    for p in PdfReader(ultima_path).pages:
+        writer.add_page(p)
 
     output_final = io.BytesIO()
     writer.write(output_final)
