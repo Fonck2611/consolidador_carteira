@@ -1,7 +1,7 @@
 # utils/geracao_pdf.py
 from reportlab.platypus import (
-    BaseDocTemplate, PageTemplate, Frame,  # alteração: usamos BaseDocTemplate
-    SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, PageBreak
+    BaseDocTemplate, PageTemplate, Frame,           # alteração realizada aqui
+    Table, TableStyle, Paragraph, Spacer, Image, PageBreak
 )
 from reportlab.platypus import Table as InnerTable
 from reportlab.lib import colors
@@ -13,6 +13,7 @@ import pandas as pd
 import io
 import os
 import unicodedata
+import re                                           # ← usado para extrair D+N  # alteração realizada aqui
 from PyPDF2 import PdfReader, PdfWriter
 from datetime import datetime
 
@@ -132,7 +133,7 @@ def draw_header(canvas, doc):
 
     # Linha 1
     row1_label_y = line_y - 16
-    row1_field_y = row1_label_y - 10  # menor gap rótulo→valor
+    row1_field_y = row1_label_y - 10  # gap menor
 
     # Nome do cliente
     canvas.setFillColor(label_color)
@@ -145,7 +146,7 @@ def draw_header(canvas, doc):
     canvas.setFont(BOLD_FONT, 10)
     canvas.drawString(left + 6, row1_field_y - field_height + 5, (CLIENTE_NOME or "").upper())
 
-    # Perfil de risco sugerido
+    # Perfil
     perf_left = left + col_width + col_gap
     canvas.setFillColor(label_color)
     canvas.setFont(BOLD_FONT, 9)
@@ -290,7 +291,7 @@ def generate_pdf(
         else:
             raise ValueError("modelo_df precisa conter a coluna 'Percentual Ideal'.")
 
-    # Estado global para header
+    # Estado global p/ header
     global patrimonio_total, CLIENTE_NOME, NOME_ASSESSOR, DATA_HOJE_STR, PERFIL_RISCO, APORTE_TEXT
     CLIENTE_NOME = cliente_nome or ""
     NOME_ASSESSOR = nome_assessor or ""
@@ -354,33 +355,26 @@ def generate_pdf(
 
     # ===== Documento (BaseDocTemplate com Frame SEM padding) =====
     buffer_relatorio = io.BytesIO()
-    doc = BaseDocTemplate(  # alteração realizada aqui
+    doc = BaseDocTemplate(
         buffer_relatorio,
         pagesize=A4,
-        leftMargin=36,
-        rightMargin=36,
-        topMargin=202,
-        bottomMargin=70,
+        leftMargin=36, rightMargin=36, topMargin=202, bottomMargin=70
     )
-
-    # Template com frame alinhado às margens e sem padding
-    frame = Frame(  # alteração realizada aqui
-        doc.leftMargin, doc.bottomMargin, doc.width, doc.height,
-        leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0, id='normal'
-    )
+    frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height,
+                  leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0, id='normal')
 
     def _on_page(canvas, doc_):
         draw_header(canvas, doc_)
         draw_footer(canvas, doc_)
 
-    doc.addPageTemplates(PageTemplate(id='OneCol', frames=[frame], onPage=_on_page))  # alteração realizada aqui
+    doc.addPageTemplates(PageTemplate(id='OneCol', frames=[frame], onPage=_on_page))
 
     elems.append(Spacer(1, 14))
 
     buf1, color_map = make_doughnut_atual(df_dist, "Percentual")
     buf2 = make_doughnut_modelo(df_modelo, "Percentual Ideal", color_map)
 
-    # Tabela comparativa central
+    # Tabela comparativa
     temp_df = pd.DataFrame({
         "Classificação": list(dict.fromkeys(list(df_dist["Classificação"]) + list(df_modelo["Classificação"])))
     })
@@ -388,19 +382,12 @@ def generate_pdf(
     temp_df["Modelo"] = temp_df["Classificação"].map(lambda x: df_modelo.loc[df_modelo["Classificação"] == x, "Percentual Ideal"].sum())
     temp_df = temp_df.fillna(0.0).sort_values(by="Atual", ascending=False).reset_index(drop=True)
 
-    header_small = ParagraphStyle(
-        name="HeaderSmall", parent=styles["Normal"], alignment=TA_CENTER,
-        fontName=BOLD_FONT, fontSize=8, leading=8, textColor=colors.whitesmoke
-    )
-
     def bar(color: str, align="left", value: float = 0.0):
         val = float(value) if pd.notna(value) else 0.0
         percent = f"{val:.1f}".replace(".", ",") + "%"
         b = InnerTable([[" "]], colWidths=4, rowHeights=12)
-        b.setStyle(TableStyle([
-            ("BACKGROUND", (0,0), (-1,-1), colors.HexColor(color) if isinstance(color, str) else color),
-            ("BOX", (0,0), (-1,-1), 0, colors.white)
-        ]))
+        b.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,-1), colors.HexColor(color) if isinstance(color, str) else color),
+                               ("BOX", (0,0), (-1,-1), 0, colors.white)]))
         small = ParagraphStyle("Small", parent=styles["Normal"], fontName=BASE_FONT, fontSize=8, textColor=PRIMARY_COLOR,
                                alignment=TA_RIGHT if align=="right" else TA_LEFT)
         if align == "left":
@@ -498,36 +485,100 @@ def generate_pdf(
     title_center = ParagraphStyle(name="CenteredTitle", parent=styles["Heading2"],
                                   alignment=TA_CENTER, textColor=PRIMARY_COLOR, fontName=BOLD_FONT)
 
-    # Títulos sem padding externo (alinha com as margens)
     elems.append(
         Table(
             [[Paragraph("Carteira Atual", title_center), "", Paragraph("Carteira Proposta", title_center)]],
             colWidths=[half_width, GAP, half_width], hAlign='LEFT',
-            style=[
-                ('LEFTPADDING',(0,0),(-1,-1),0),
-                ('RIGHTPADDING',(0,0),(-1,-1),0),
-                ('TOPPADDING',(0,0),(-1,-1),0),
-                ('BOTTOMPADDING',(0,0),(-1,-1),0),
-            ]
+            style=[('LEFTPADDING',(0,0),(-1,-1),0), ('RIGHTPADDING',(0,0),(-1,-1),0),
+                   ('TOPPADDING',(0,0),(-1,-1),0), ('BOTTOMPADDING',(0,0),(-1,-1),0)]
         )
     )
-    # Duas tabelas lado a lado, sem padding externo
     elems.append(
         Table(
             [[tbl1, "", tbl2]],
             colWidths=[half_width, GAP, half_width], hAlign='LEFT',
-            style=[
-                ('VALIGN',(0,0),(-1,-1),'TOP'),
-                ('LEFTPADDING',(0,0),(-1,-1),0),
-                ('RIGHTPADDING',(0,0),(-1,-1),0),
-                ('TOPPADDING',(0,0),(-1,-1),0),
-                ('BOTTOMPADDING',(0,0),(-1,-1),0),
-            ]
+            style=[('VALIGN',(0,0),(-1,-1),'TOP'),
+                   ('LEFTPADDING',(0,0),(-1,-1),0), ('RIGHTPADDING',(0,0),(-1,-1),0),
+                   ('TOPPADDING',(0,0),(-1,-1),0), ('BOTTOMPADDING',(0,0),(-1,-1),0)]
         )
     )
-    # ========== Fim das tabelas lado a lado ==========
 
-    # Página seguinte — Sugestão de Carteira (detalhada)
+    # ===== NOVO: Gráfico de Liquidez da carteira proposta (R$) =====
+    def _extract_days(liq: str):
+        m = re.search(r"D\+(\d+)", str(liq))
+        return int(m.group(1)) if m else None
+
+    ativos_local = ativos_df.copy()
+    ativos_local["days"] = ativos_local["Liquidez"].apply(_extract_days)
+    def _classify_faixa(row):
+        d = row["days"]
+        liq = str(row["Liquidez"]).lower()
+        if d is None:
+            return "D+0"
+        if d > 180: return "Acima de D+180"
+        if d > 60:  return "Até D+180"
+        if d > 15:  return "Até D+60"
+        if d > 5:   return "Até D+15"
+        if d > 0:   return "Até D+5"
+        if d == 0 and "à mercado" in liq: return "D+0 (à mercado)"
+        return "D+0"
+
+    ativos_local["Faixa"] = ativos_local.apply(_classify_faixa, axis=1)
+
+    # usamos 'Novo Valor' para a PROPOSTA; se não existir, cai para 'valor_atual'
+    valor_col = "Novo Valor" if "Novo Valor" in ativos_local.columns else "valor_atual"   # alteração realizada aqui
+
+    ordem = [
+        "D+0 (à mercado)", "D+0", "Até D+5", "Até D+15", "Até D+60", "Até D+180", "Acima de D+180"
+    ]
+    liq_faixas = (
+        ativos_local
+        .assign(valor=pd.to_numeric(ativos_local[valor_col], errors="coerce").fillna(0.0))
+        .groupby("Faixa")["valor"].sum()
+        .reindex(ordem, fill_value=0.0)    # garante todas as faixas  # alteração realizada aqui
+        .reset_index()
+    )
+
+    # Matplotlib barh (sem eixo X, sem rótulos do eixo X)
+    buf_liq = io.BytesIO()
+    fig, ax = plt.subplots(figsize=(7, 2.6))   # proporção horizontal  # alteração realizada aqui
+    y_labels = ordem[::-1]                     # mostra "Acima de D+180" no topo (como no exemplo)
+    y_pos = range(len(y_labels))
+    valores = [liq_faixas.set_index("Faixa").loc[l, "valor"] for l in y_labels]
+
+    bars = ax.barh(list(y_pos), valores)
+    ax.set_yticks(list(y_pos), labels=y_labels)
+    ax.set_xlabel("")           # sem nome do eixo X
+    ax.set_xticks([])           # sem valores no eixo X
+    ax.tick_params(axis='x', length=0)
+    ax.spines['bottom'].set_visible(False)
+    ax.spines['top'].set_visible(False)
+    ax.spines['right'].set_visible(False)
+
+    # rótulos numéricos à direita das barras (formato BR)
+    max_v = max(valores) if valores else 0.0
+    ax.set_xlim(0, max_v * 1.15 if max_v > 0 else 1)
+    for rect, val in zip(bars, valores):
+        txt = _format_number_br(val)
+        ax.text(rect.get_width() + (max_v * 0.01 if max_v else 0.02),
+                rect.get_y() + rect.get_height()/2,
+                txt, va='center', ha='left', fontsize=9)
+
+    ax.set_ylabel("Faixa")
+
+    plt.tight_layout()
+    fig.savefig(buf_liq, format='PNG', dpi=150, bbox_inches='tight')
+    plt.close(fig); buf_liq.seek(0)
+
+    # título + imagem do gráfico
+    elems.append(Spacer(1, 22))
+    elems.append(Paragraph("Liquidez da carteira proposta (R$)",
+                           ParagraphStyle(name="H2_LIQ", parent=styles["Heading2"],
+                                          fontName=BOLD_FONT, alignment=TA_CENTER)))
+    elems.append(Spacer(1, 6))
+    elems.append(Image(buf_liq, width=doc.width, height=170))              # alteração realizada aqui
+
+    # ===== Página seguinte — Sugestão de Carteira (detalhada)
     elems.append(PageBreak())
     elems.append(Paragraph("Sugestão de Carteira",
                            ParagraphStyle(name="H2", parent=styles["Heading2"], fontName=BOLD_FONT)))
@@ -579,7 +630,7 @@ def generate_pdf(
     elems.append(tbl)
 
     # Build do relatório
-    doc.build(elems)  # alteração: BaseDocTemplate usa PageTemplate com onPage
+    doc.build(elems)
 
     buffer_relatorio.seek(0)
 
