@@ -226,7 +226,7 @@ def draw_footer(canvas, doc):
 
     # --- Logo inferior esquerdo ---
     base_dir = os.path.dirname(__file__)
-    logo_path = os.path.join(base_dir, "Logo_Criteria_Financial_Group_Cor_V2_RGB-01.png")
+    logo_path = os.path.join(base_dir, "c-com-fundo-branco.png")
     logo_w_target = 22
     try:
         img = ImageReader(logo_path)
@@ -550,3 +550,4 @@ def generate_pdf(
     writer.write(output_final)
     output_final.seek(0)
     return output_final.read()
+
