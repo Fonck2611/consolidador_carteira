@@ -13,7 +13,7 @@ import pandas as pd
 import io
 import os
 import unicodedata
-import re  # <- usado para extrair D+N  # alteração realizada aqui
+import re  # usado para extrair D+N
 from PyPDF2 import PdfReader, PdfWriter
 from datetime import datetime
 
@@ -120,7 +120,7 @@ def draw_header(canvas, doc):
 
     # Linha 1
     row1_label_y = line_y - 16
-    row1_field_y = row1_label_y - 10  # ↓ gap menor título→valor
+    row1_field_y = row1_label_y - 10  # gap menor título→valor
 
     # Nome do cliente
     canvas.setFillColor(label_color); canvas.setFont(BOLD_FONT, 9)
@@ -488,33 +488,41 @@ def generate_pdf(
                    .reset_index()
     )
 
-    # ----- ESTILO + ORDEM INVERTIDA (Acima de D+180 no topo) -----
+    # ===== Aparência do gráfico (ajustes solicitados) =====
+    cinza_txt = "#6B7280"  # cinza médio – legível   # alteração realizada aqui
     buf_liq = io.BytesIO()
-    fig, ax = plt.subplots(figsize=(7.5, 3.2))  # um pouco mais alto  # alteração realizada aqui
-    y_labels = ["Acima de D+180","Até D+180","Até D+60","Até D+15","Até D+5","D+0","D+0 (à mercado)"]  # alteração realizada aqui
+    fig, ax = plt.subplots(figsize=(7.5, 3.4))  # um pouco mais alto               # alteração realizada aqui
+    y_labels = ["Acima de D+180","Até D+180","Até D+60","Até D+15","Até D+5","D+0","D+0 (à mercado)"]
     y_pos = list(range(len(y_labels)))
     valores = [liq_faixas.set_index("Faixa").loc[l, "valor"] for l in y_labels]
 
-    bars = ax.barh(y_pos, valores, height=0.58)  # barras mais “cheias”  # alteração realizada aqui
+    bars = ax.barh(y_pos, valores, height=0.70)  # barras mais largas               # alteração realizada aqui
+
+    # Rótulos eixo Y menores e em cinza; sem “tracinho” (tick) entre rótulo e barra
     ax.set_yticks(y_pos, labels=y_labels)
-    ax.set_xlabel("")            # sem nome do eixo X
-    ax.set_xticks([])            # sem valores do eixo X
-    ax.tick_params(axis='x', length=0)
+    ax.tick_params(axis='y', labelsize=8, colors=cinza_txt, length=0)               # alteração realizada aqui
+    ax.set_ylabel("Faixa", fontsize=9, color=cinza_txt)                              # alteração realizada aqui
 
-    # tirar todos os spines para ficar “limpo” como no Plotly
+    # Eixo X oculto
+    ax.set_xlabel("")
+    ax.set_xticks([])
+    ax.tick_params(axis='x', length=0, colors=cinza_txt)
+
+    # Sem spines para ficar limpo
     for side in ["bottom","top","right","left"]:
-        ax.spines[side].set_visible(False)      # alteração realizada aqui
+        ax.spines[side].set_visible(False)
 
-    # rótulo numérico fora da barra, no padrão BR
+    # Rótulos numéricos fora da barra – não mostrar quando valor == 0
     max_v = max(valores) if valores else 0.0
     ax.set_xlim(0, max_v*1.15 if max_v > 0 else 1)
     for rect, val in zip(bars, valores):
+        if val <= 0:   # não escreve quando zero                              # alteração realizada aqui
+            continue
         txt = _format_number_br(val)
         ax.text(rect.get_width() + (max_v*0.012 if max_v else 0.02),
                 rect.get_y() + rect.get_height()/2, txt,
-                va='center', ha='left', fontsize=9)
+                va='center', ha='left', fontsize=9, color=cinza_txt)          # alteração realizada aqui
 
-    ax.set_ylabel("Faixa")  # mantém como no exemplo base
     plt.tight_layout(pad=1.0)
     fig.savefig(buf_liq, format='PNG', dpi=150, bbox_inches='tight')
     plt.close(fig); buf_liq.seek(0)
@@ -524,7 +532,7 @@ def generate_pdf(
                            ParagraphStyle(name="H2_LIQ", parent=styles["Heading2"],
                                           fontName=BOLD_FONT, alignment=TA_CENTER)))
     elems.append(Spacer(1, 6))
-    elems.append(Image(buf_liq, width=doc.width, height=170))
+    elems.append(Image(buf_liq, width=doc.width, height=182))  # leve ajuste de altura  # alteração realizada aqui
 
     # --- Página seguinte — Sugestão de Carteira (detalhada)
     elems.append(PageBreak())
