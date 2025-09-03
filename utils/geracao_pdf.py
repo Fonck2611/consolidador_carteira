@@ -227,7 +227,7 @@ def draw_footer(canvas, doc):
     # --- Logo inferior esquerdo ---
     base_dir = os.path.dirname(__file__)
     logo_path = os.path.join(base_dir, "c-com-fundo-branco.png")
-    logo_w_target = 22
+    logo_w_target = 44
     try:
         img = ImageReader(logo_path)
         iw, ih = img.getSize()
@@ -241,7 +241,7 @@ def draw_footer(canvas, doc):
         logo_w = 0
         logo_h = 0
         x_img = left
-        y_img = 12
+        y_img = 24
 
     # --- Linha horizontal alinhada ao centro do logo ---
     y_line = y_img + (logo_h / 2 if logo_h else 10)
@@ -550,4 +550,5 @@ def generate_pdf(
     writer.write(output_final)
     output_final.seek(0)
     return output_final.read()
+
 
