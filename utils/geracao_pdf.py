@@ -79,7 +79,7 @@ def _inferir_perfil(sugestao: dict) -> str:
         return "MODERADA"
     if "sofist" in cand:
         return "SOFISTICADA"
-    if "person" in cand or "custom" in cand or "personalizada" in cand:
+    if "person" in cand or "custom" in cand ou "personalizada" in cand:
         return "PERSONALIZADA"
     return "PERSONALIZADA"
 
@@ -92,7 +92,7 @@ def draw_header(canvas, doc):
 
     left = doc.leftMargin
     right = page_width - doc.rightMargin
-    top_y = page_height - 36  # ↓ aproximado do topo (antes: 54)  # alteração realizada aqui
+    top_y = page_height - 36  # ↓ aproximado do topo (antes: 54)
 
     # ====== Título e data (lado esquerdo) ======
     canvas.setFillColor(PRIMARY_COLOR)
@@ -129,7 +129,7 @@ def draw_header(canvas, doc):
 
     # Linha 1: Nome do cliente | Perfil de risco sugerido
     row1_label_y = line_y - 16
-    row1_field_y = row1_label_y - 14
+    row1_field_y = row1_label_y - 10    # ↓ reduzi o gap título → valor (antes: 14)  # alteração realizada aqui
 
     # Nome do cliente
     canvas.setFillColor(label_color)
@@ -190,7 +190,7 @@ def draw_header(canvas, doc):
 
     # Linha 2: Nome de assessor | Aporte
     row2_label_y = row1_field_y - field_height - 12
-    row2_field_y = row2_label_y - 14
+    row2_field_y = row2_label_y - 10    # ↓ reduzi o gap título → valor (antes: 14)  # alteração realizada aqui
 
     # Nome de assessor
     canvas.setFillColor(label_color)
@@ -213,6 +213,13 @@ def draw_header(canvas, doc):
     canvas.setFillColor(PRIMARY_COLOR)
     canvas.setFont(BASE_FONT, 10)
     canvas.drawString(perf_left + 6, row2_field_y - field_height + 5, APORTE_TEXT or "Sem aporte")
+
+    # ====== Linha final do cabeçalho (abaixo das caixas) ======
+    bottom_boxes_y = row2_field_y - field_height + 2                     # base das caixas
+    footer_line_y = bottom_boxes_y - 6                                    # pequena folga abaixo  # alteração realizada aqui
+    canvas.setStrokeColor(PRIMARY_COLOR)
+    canvas.setLineWidth(0.6)
+    canvas.line(left, footer_line_y, right, footer_line_y)                # alteração realizada aqui
 
     canvas.restoreState()
 
@@ -357,7 +364,7 @@ def generate_pdf(
     doc = SimpleDocTemplate(
         buffer_relatorio,
         pagesize=A4,
-        topMargin=202,  # compensado para manter o mesmo respiro após mover o header para cima (antes: 220)  # alteração realizada aqui
+        topMargin=202,  # mantém respiro do conteúdo
         bottomMargin=70,
         leftMargin=36,
         rightMargin=36
@@ -550,5 +557,3 @@ def generate_pdf(
     writer.write(output_final)
     output_final.seek(0)
     return output_final.read()
-
-
