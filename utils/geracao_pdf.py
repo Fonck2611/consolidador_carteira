@@ -57,9 +57,33 @@ BOLD_FONT = "Helvetica-Bold"
 # Utilidades numéricas
 # -------------------------
 def _to_float_br(series) -> pd.Series:
-    """Converte série com números no formato BR (1.234,56) para float de forma robusta."""
-    s = series.astype(str).str.replace(".", "", regex=False).str.replace(",", ".", regex=False)
-    return pd.to_numeric(s, errors="coerce").fillna(0.0)  # alteração realizada aqui
+    """
+    Converte série com números possivelmente em formato BR (1.234,56),
+    aceita também já numéricos (float/int) e strings US (1234.56).
+    Remove 'R$' e '%' com segurança.
+    """
+    def conv(x):
+        if pd.isna(x):
+            return 0.0
+        if isinstance(x, (int, float)):      # <<<<<< correção principal
+            return float(x)                   # mantém o valor numérico
+        s = str(x).strip()
+        if s == "":
+            return 0.0
+        s = s.replace("R$", "").replace(" ", "").replace("%", "")  # limpeza
+        # casos:
+        # 1) "1.234,56" => remove pontos de milhar e troca vírgula por ponto
+        if "," in s and "." in s:
+            s = s.replace(".", "").replace(",", ".")
+        # 2) "1234,56"  => troca vírgula por ponto
+        elif "," in s:
+            s = s.replace(",", ".")
+        # 3) "1234.56"  => já está ok
+        try:
+            return float(s)
+        except Exception:
+            return 0.0
+    return series.apply(conv)                 # alteração realizada aqui
 
 def _format_number_br(valor: float) -> str:
     try:
@@ -125,7 +149,7 @@ def draw_header(canvas, doc):
 
     # Linha 1
     row1_label_y = line_y - 16
-    row1_field_y = row1_label_y - 10  # gap menor título→valor
+    row1_field_y = row1_label_y - 10
 
     # Nome do cliente
     canvas.setFillColor(label_color); canvas.setFont(BOLD_FONT, 9)
@@ -250,24 +274,19 @@ def generate_pdf(
     df_dist = dist_df.copy()
     if "valor" not in df_dist.columns and "valor_atual" in df_dist.columns:
         df_dist = df_dist.rename(columns={"valor_atual": "valor"})
-    # garante que 'valor' é numérico mesmo se vier como string "1.234,56"
-    df_dist["valor"] = _to_float_br(df_dist["valor"])  # alteração realizada aqui
-
+    df_dist["valor"] = _to_float_br(df_dist["valor"])  # <<< usa conversão robusta
     if "Percentual" not in df_dist.columns:
         total_val = df_dist["valor"].sum()
         df_dist["Percentual"] = (df_dist["valor"] / total_val * 100) if total_val else 0.0
 
     df_modelo = modelo_df.copy()
-    # garante coluna Percentual Ideal presente
     if "Percentual Ideal" not in df_modelo.columns:
         poss = [c for c in df_modelo.columns if "percentual" in c.lower()]
         if poss:
             df_modelo = df_modelo.rename(columns={poss[0]: "Percentual Ideal"})
         else:
             raise ValueError("modelo_df precisa conter a coluna 'Percentual Ideal'.")
-
-    # Percentual Ideal como número real (tratando "10,5")
-    df_modelo["Percentual Ideal"] = _to_float_br(df_modelo["Percentual Ideal"])  # alteração realizada aqui
+    df_modelo["Percentual Ideal"] = _to_float_br(df_modelo["Percentual Ideal"])  # <<< trata vírgula e %
 
     # Estado global para header
     global patrimonio_total, CLIENTE_NOME, NOME_ASSESSOR, DATA_HOJE_STR, PERFIL_RISCO, APORTE_TEXT
@@ -418,15 +437,12 @@ def generate_pdf(
     dist_fmt = dist_fmt[["Classificação","Valor","% PL"]]
 
     modelo_fmt = df_modelo.copy()
-
-    # >>> CÁLCULO CORRIGIDO DO "VALOR" DA PROPOSTA <<<  # alteração realizada aqui
     if "Valor Ideal (R$)" in modelo_fmt.columns:
-        modelo_fmt["valor"] = _to_float_br(modelo_fmt["Valor Ideal (R$)"])
+        modelo_fmt["valor"] = _to_float_br(modelo_fmt["Valor Ideal (R$)"])  # <<< robusto
     else:
-        base_total = patrimonio_total  # pode incluir aporte futuro, se necessário
+        base_total = patrimonio_total
         perc = _to_float_br(modelo_fmt["Percentual Ideal"])
-        modelo_fmt["valor"] = base_total * (perc / 100.0)
-
+        modelo_fmt["valor"] = base_total * (perc / 100.0)                   # <<< cálculo seguro
     modelo_fmt = modelo_fmt.sort_values(by="valor", ascending=False)
     modelo_fmt["Valor"] = modelo_fmt["valor"].apply(_format_number_br)
     modelo_fmt["% PL"]  = modelo_fmt["Percentual Ideal"].apply(lambda x: _format_number_br(x) + "%")
@@ -494,11 +510,10 @@ def generate_pdf(
     ativos_local["Faixa"] = ativos_local.apply(_classify, axis=1)
 
     valor_col = "Novo Valor" if "Novo Valor" in ativos_local.columns else "valor_atual"
-    ordem = ["D+0 (à mercado)","D+0","Até D+5","Até D+15","Até D+60","Até D+180","Acima de D+180"]
     liq_faixas = (
-        ativos_local.assign(valor=pd.to_numeric(ativos_local[valor_col], errors="coerce").fillna(0.0))
+        ativos_local.assign(valor=_to_float_br(ativos_local[valor_col]))  # <<< usa conversão robusta
                    .groupby("Faixa")["valor"].sum()
-                   .reindex(ordem, fill_value=0.0)
+                   .reindex(["D+0 (à mercado)","D+0","Até D+5","Até D+15","Até D+60","Até D+180","Acima de D+180"], fill_value=0.0)
                    .reset_index()
     )
 
