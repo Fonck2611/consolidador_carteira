@@ -55,8 +55,8 @@ def show():
         st.markdown(
             """
             <style>
-            div[data-testid=\"stDataEditor\"] .ag-cell,
-            div[data-testid=\"stDataEditor\"] .ag-header-cell {
+            div[data-testid="stDataEditor"] .ag-cell,
+            div[data-testid="stDataEditor"] .ag-header-cell {
                 text-align: left !important;
             }
             </style>
@@ -155,20 +155,27 @@ def show():
         if carteira_tipo == "Personalizada" and round(soma_percentual, 2) != 100.00:
             st.warning("Ajuste a carteira sugerida para que totalize 100%.")
         else:
+            # guarda o tipo de carteira escolhido
             st.session_state.carteira_modelo = carteira_tipo
             if carteira_tipo == "Personalizada":
                 st.session_state.modelo_personalizado_dict = dict(
                     zip(modelo_df["Classificação"], modelo_df["Percentual"])
                 )
-    
-            # >>> adição importante: empacotar 'sugestao'
-            st.session_state.sugestao = {
-                "carteira_modelo": carteira_tipo,
-                # opcionalmente, guarde o modelo personalizado para outras telas usarem:
-                "modelo_personalizado": st.session_state.get("modelo_personalizado_dict", None)
-            }
-            # <<<
-    
+
+            # >>> GARANTIR QUE O APORTE SIGA ADIANTE + MERGE DA SUGESTÃO <<<
+            sug_existente = dict(st.session_state.get("sugestao", {}))
+            sug_existente["carteira_modelo"] = carteira_tipo
+            if carteira_tipo == "Personalizada":
+                sug_existente["modelo_personalizado"] = st.session_state.get("modelo_personalizado_dict")
+
+            # Propaga aporte se já foi informado na Etapa 2
+            if "aporte_text" in st.session_state and st.session_state.get("aporte_text"):
+                sug_existente["aporte_text"] = st.session_state["aporte_text"]
+            if "aporte_valor" in st.session_state and st.session_state.get("aporte_valor") is not None:
+                sug_existente["aporte_valor"] = st.session_state["aporte_valor"]
+
+            st.session_state.sugestao = sug_existente
+            # <<< FIM – PROPAGAÇÃO DO APORTE >>>
+
             st.session_state.etapa = 4
             st.rerun()
-
