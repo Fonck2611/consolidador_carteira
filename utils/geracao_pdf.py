@@ -571,7 +571,7 @@ def generate_pdf(
             "Classificação": cls,
             "Atual (%)": pa,
             "Sugerida (%)": ps,
-            "AjusteNum": adj,
+            "AjusteNum": adj,                  # <- numérico para ordenar
             "Ajuste (%)": adj,
             "Ação": "Aumentar" if adj > 0 else ("Reduzir" if adj < 0 else "Inalterado")
         })
@@ -582,11 +582,22 @@ def generate_pdf(
     dif_df["Ajuste (%)"]   = dif_df["Ajuste (%)"].apply(lambda v: _format_number_br(v) + "%")
 
     dif_cols = ["Classificação", "Atual (%)", "Sugerida (%)", "Ajuste (%)", "Ação"]
-    dif_colwidths = [doc.width*0.34, doc.width*0.16, doc.width*0.16, doc.width*0.16, doc.width*0.18]
+
+    # função para colWidths que deixa folga (evita estourar a largura com paddings)
+    def _cw_with_cushion(pcts):
+        avail = doc.width - 12  # ~12pt de folga
+        s = sum(pcts)
+        return [avail * (p/s) for p in pcts]
+
+    dif_colwidths = _cw_with_cushion([34, 16, 16, 16, 18])
 
     dif_tbl = Table([dif_cols] + dif_df[dif_cols].values.tolist(),
                     colWidths=dif_colwidths, hAlign='LEFT')
     dif_tbl.setStyle(styl_common)
+    dif_tbl.setStyle(TableStyle([
+        ('LEFTPADDING',(0,0),(-1,-1),4), ('RIGHTPADDING',(0,0),(-1,-1),4),
+        ('TOPPADDING',(0,0),(-1,0),4),   ('BOTTOMPADDING',(0,0),(-1,0),4),
+    ]))
 
     elems.append(Paragraph("Diferenças entre Atual e Sugerida", title_center))
     elems.append(dif_tbl)
@@ -606,15 +617,15 @@ def generate_pdf(
             alocados["Novo Valor (R$)"]      = alocados["Novo Valor"].apply(_format_number_br)
             alocados["Valor Realocado (R$)"] = alocados["Valor Realocado"].apply(_format_number_br)
 
-            cols_a = ["Classificação", "Ativo", "Valor Atual (R$)", "Valor Realocado (R$)", "Novo Valor (R$)"]
-            # 18% | 46% | 12% | 12% | 12%
-            w_a = [doc.width*0.18, doc.width*0.46, doc.width*0.12, doc.width*0.12, doc.width*0.12]
-
+            # cabeçalhos curtos para evitar wrap/overlap
             header_a = [Paragraph("Classificação", hdr9),
                         Paragraph("Ativo", hdr9),
-                        Paragraph("Valor Atual (R$)", hdr9),
-                        Paragraph("Valor Realocado (R$)", hdr9),
-                        Paragraph("Novo Valor (R$)", hdr9)]
+                        Paragraph("Valor Atual", hdr9),
+                        Paragraph("Realocado", hdr9),
+                        Paragraph("Novo Valor", hdr9)]
+
+            cols_a = ["Classificação", "Ativo", "Valor Atual (R$)", "Valor Realocado (R$)", "Novo Valor (R$)"]
+            w_a = _cw_with_cushion([18, 46, 12, 12, 12])
 
             data_a = [header_a]
             for _, r in alocados[cols_a].iterrows():
@@ -628,7 +639,11 @@ def generate_pdf(
 
             alocados_tbl = Table(data_a, colWidths=w_a, hAlign='LEFT')
             alocados_tbl.setStyle(styl_common)
-            alocados_tbl.setStyle(TableStyle([("FONTSIZE",(0,0),(-1,0),9)]))
+            # header mais alto e paddings mais estreitos no corpo
+            alocados_tbl.setStyle(TableStyle([
+                ('LEFTPADDING',(0,0),(-1,-1),3), ('RIGHTPADDING',(0,0),(-1,-1),3),
+                ('TOPPADDING',(0,0),(-1,0),4),   ('BOTTOMPADDING',(0,0),(-1,0),4),
+            ]))
             elems.append(alocados_tbl)
         else:
             elems.append(Paragraph("_Nenhum ativo alocado._", styles["Italic"]))
@@ -647,14 +662,14 @@ def generate_pdf(
             resgatados["Novo Valor (R$)"]      = resgatados["Novo Valor"].apply(_format_number_br)
             resgatados["Valor Realocado (R$)"] = resgatados["Valor Realocado"].apply(_format_number_br)
 
-            cols_r = ["Classificação", "Ativo", "Valor Atual (R$)", "Valor Realocado (R$)", "Novo Valor (R$)"]
-            w_r = [doc.width*0.18, doc.width*0.46, doc.width*0.12, doc.width*0.12, doc.width*0.12]
-
             header_r = [Paragraph("Classificação", hdr9),
                         Paragraph("Ativo", hdr9),
-                        Paragraph("Valor Atual (R$)", hdr9),
-                        Paragraph("Valor Realocado (R$)", hdr9),
-                        Paragraph("Novo Valor (R$)", hdr9)]
+                        Paragraph("Valor Atual", hdr9),
+                        Paragraph("Realocado", hdr9),
+                        Paragraph("Novo Valor", hdr9)]
+
+            cols_r = ["Classificação", "Ativo", "Valor Atual (R$)", "Valor Realocado (R$)", "Novo Valor (R$)"]
+            w_r = _cw_with_cushion([18, 46, 12, 12, 12])
 
             data_r = [header_r]
             for _, r in resgatados[cols_r].iterrows():
@@ -668,7 +683,10 @@ def generate_pdf(
 
             resgatados_tbl = Table(data_r, colWidths=w_r, hAlign='LEFT')
             resgatados_tbl.setStyle(styl_common)
-            resgatados_tbl.setStyle(TableStyle([("FONTSIZE",(0,0),(-1,0),9)]))
+            resgatados_tbl.setStyle(TableStyle([
+                ('LEFTPADDING',(0,0),(-1,-1),3), ('RIGHTPADDING',(0,0),(-1,-1),3),
+                ('TOPPADDING',(0,0),(-1,0),4),   ('BOTTOMPADDING',(0,0),(-1,0),4),
+            ]))
             elems.append(resgatados_tbl)
         else:
             elems.append(Paragraph("_Nenhum ativo resgatado._", styles["Italic"]))
