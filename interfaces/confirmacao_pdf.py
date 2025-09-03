@@ -224,34 +224,49 @@ def show():
 
     # === PREPARO DE DATAFRAMES PARA O PDF ===
     modelo_raw = get_modelo_carteira(carteira_modelo)
+    
     if isinstance(modelo_raw, dict):
-        modelo_df = pd.DataFrame([modelo_raw])
+        # monta do jeito que o PDF espera
+        modelo_df = pd.DataFrame({
+            "Classificação": list(modelo_raw.keys()),
+            "Percentual Ideal": list(modelo_raw.values()),
+        })
     else:
         modelo_df = modelo_raw.copy()
-
-    # tenta identificar coluna de percentual ideal
-    percent_cols = [c for c in modelo_df.columns if "percentual" in c.lower()]
-    if percent_cols:
-        modelo_df = modelo_df.rename(columns={percent_cols[0]: "Percentual Ideal"})
-    else:
-        # fallback: usa dist_sug já calculado
-        modelo_df = dist_sug.rename(columns={"Percentual": "Percentual Ideal", "valor_sugerido": "valor"})[["Classificação", "valor", "Percentual Ideal"]]
-
+        # normaliza nome de coluna de percentual, se vier diferente
+        percent_cols = [c for c in modelo_df.columns if "percentual" in c.lower()]
+        if percent_cols and "Percentual Ideal" not in modelo_df.columns:
+            modelo_df = modelo_df.rename(columns={percent_cols[0]: "Percentual Ideal"})
+    
+    # dist atual no formato esperado
     dist_df = dist_atual.rename(columns={"valor_atual": "valor"})
-
+    
+    # o PDF aceita 'resumo_df' por compatibilidade; use o que você já montou (res_df)
+    resumo_df = res_df.copy() if 'res_df' in locals() else pd.DataFrame()
+    
     # === GERAÇÃO E DOWNLOAD DO PDF ===
-    # alteração realizada aqui: agora generate_pdf devolve bytes (sem gravar em disco)
-    sugestao = st.session_state.get("sugestao", {"carteira_modelo": st.session_state.get("carteira_modelo")})
+    sugestao = st.session_state.get(
+        "sugestao",
+        {"carteira_modelo": st.session_state.get("carteira_modelo")}
+    )
+    
     pdf_bytes = generate_pdf(
         dist_df=dist_df,
-        modelo_df=modelo_df,          # já vem da etapa anterior
-        resumo_df=resumo_df,          # se existir
-        sugestao=sugestao,            # <<<<< AQUI
+        modelo_df=modelo_df,
+        resumo_df=resumo_df,          # agora existe
+        sugestao=sugestao,
         ativos_df=ativos_df,
-        cliente_nome=cliente,
-        nome_assessor=assessor,
+        cliente_nome=cliente_nome,    # usa os nomes corretos
+        nome_assessor=nome_assessor,
     )
-    st.download_button("Gerar e Baixar PDF", pdf_bytes, "relatorio_carteira.pdf", "application/pdf")  # alteração realizada aqui
+    
+    st.download_button(
+        "Gerar e Baixar PDF",
+        pdf_bytes,
+        "relatorio_carteira.pdf",
+        "application/pdf"
+    )
+
 
     # === DOWNLOAD DO EXCEL ===
     excel1 = ativos_df.copy()
@@ -282,5 +297,6 @@ def show():
     if st.button("Voltar para Sugestões"):
         st.session_state.etapa = 4
         st.rerun()
+
 
 
