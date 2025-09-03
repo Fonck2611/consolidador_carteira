@@ -31,8 +31,9 @@ patrimonio_total = 0.0
 CLIENTE_NOME = ""
 NOME_ASSESSOR = ""
 
-# Cor primária de texto
+# Cores
 PRIMARY_COLOR = colors.HexColor("#122940")
+HLINE_COLOR   = colors.HexColor("#D6DBE2")  # cinza claro para linhas horizontais  # alteração realizada aqui
 
 # Variáveis do cabeçalho
 DATA_HOJE_STR = ""
@@ -65,25 +66,21 @@ def _to_float_br(series) -> pd.Series:
     def conv(x):
         if pd.isna(x):
             return 0.0
-        if isinstance(x, (int, float)):      # <<<<<< correção principal
-            return float(x)                   # mantém o valor numérico
+        if isinstance(x, (int, float)):
+            return float(x)
         s = str(x).strip()
         if s == "":
             return 0.0
-        s = s.replace("R$", "").replace(" ", "").replace("%", "")  # limpeza
-        # casos:
-        # 1) "1.234,56" => remove pontos de milhar e troca vírgula por ponto
+        s = s.replace("R$", "").replace(" ", "").replace("%", "")
         if "," in s and "." in s:
             s = s.replace(".", "").replace(",", ".")
-        # 2) "1234,56"  => troca vírgula por ponto
         elif "," in s:
             s = s.replace(",", ".")
-        # 3) "1234.56"  => já está ok
         try:
             return float(s)
         except Exception:
             return 0.0
-    return series.apply(conv)                 # alteração realizada aqui
+    return series.apply(conv)
 
 def _format_number_br(valor: float) -> str:
     try:
@@ -274,7 +271,7 @@ def generate_pdf(
     df_dist = dist_df.copy()
     if "valor" not in df_dist.columns and "valor_atual" in df_dist.columns:
         df_dist = df_dist.rename(columns={"valor_atual": "valor"})
-    df_dist["valor"] = _to_float_br(df_dist["valor"])  # <<< usa conversão robusta
+    df_dist["valor"] = _to_float_br(df_dist["valor"])
     if "Percentual" not in df_dist.columns:
         total_val = df_dist["valor"].sum()
         df_dist["Percentual"] = (df_dist["valor"] / total_val * 100) if total_val else 0.0
@@ -286,7 +283,7 @@ def generate_pdf(
             df_modelo = df_modelo.rename(columns={poss[0]: "Percentual Ideal"})
         else:
             raise ValueError("modelo_df precisa conter a coluna 'Percentual Ideal'.")
-    df_modelo["Percentual Ideal"] = _to_float_br(df_modelo["Percentual Ideal"])  # <<< trata vírgula e %
+    df_modelo["Percentual Ideal"] = _to_float_br(df_modelo["Percentual Ideal"])
 
     # Estado global para header
     global patrimonio_total, CLIENTE_NOME, NOME_ASSESSOR, DATA_HOJE_STR, PERFIL_RISCO, APORTE_TEXT
@@ -380,8 +377,10 @@ def generate_pdf(
         val = float(value) if pd.notna(value) else 0.0
         percent = f"{val:.1f}".replace(".", ",") + "%"
         b = InnerTable([[" "]], colWidths=4, rowHeights=12)
-        b.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1), colors.HexColor(color) if isinstance(color,str) else color),
-                               ("BOX",(0,0),(-1,-1),0, colors.white)]))
+        b.setStyle(TableStyle([
+            ("BACKGROUND",(0,0),(-1,-1), colors.HexColor(color) if isinstance(color,str) else color),
+            ("BOX",(0,0),(-1,-1),0, colors.white)
+        ]))
         small = ParagraphStyle("Small", parent=styles["Normal"], fontName=BASE_FONT, fontSize=8, textColor=PRIMARY_COLOR,
                                alignment=TA_RIGHT if align=="right" else TA_LEFT)
         if align == "left":
@@ -410,7 +409,10 @@ def generate_pdf(
         ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
         ('BACKGROUND',(0,0),(-1,0),colors.gray),
         ('TEXTCOLOR',(0,1),(-1,-1),PRIMARY_COLOR),
-        ('GRID',(0,0),(-1,-1),0.5,colors.black),
+        # Linhas horizontais claras (sem linhas verticais)
+        ('LINEABOVE',(0,0),(-1,0),0.4,HLINE_COLOR),   # topo do header  # alteração realizada aqui
+        ('LINEBELOW',(0,0),(-1,0),0.4,HLINE_COLOR),   # base do header  # alteração realizada aqui
+        ('LINEBELOW',(0,1),(-1,-1),0.3,HLINE_COLOR),  # linhas entre as linhas de dados  # alteração realizada aqui
     ]))
 
     def titulo_com_traco(texto):
@@ -418,35 +420,35 @@ def generate_pdf(
                              fontName=BOLD_FONT, fontSize=9, spaceAfter=2, textColor=PRIMARY_COLOR, textTransform='uppercase')
         return Table([[Paragraph(texto, sub)],
                       [Table([[""]], colWidths="100%", style=[("LINEBELOW",(0,0),(-1,-1),0, PRIMARY_COLOR)])]],
-                     hAlign='CENTER', style=[("BOTTOMPADDING",(0,0),(-1,-1),0), ("TOPPADDING",(0,1),(-1,1),-12)])
+                     hAlign='CENTER',
+                     style=[("BOTTOMPADDING",(0,0),(-1,-1),0), ("TOPPADDING",(0,1),(-1,1),-12)])
 
-    grafico_atual    = Table([[titulo_com_traco("CARTEIRA ATUAL")],   [Image(buf1, width=130, height=130)]],
+    grafico_atual    = Table([[titulo_com_traco("CARTEIRA ATUAL")],[Image(buf1, width=130, height=130)]],
                              rowHeights=[19,None], hAlign='CENTER')
     grafico_sugerido = Table([[titulo_com_traco("CARTEIRA PROPOSTA")],[Image(buf2, width=130, height=130)]],
                              rowHeights=[19,None], hAlign='CENTER')
 
-    elems.append(Table([[grafico_atual, comp_tbl, grafico_sugerido]],
-                       colWidths=[155,230,155], hAlign='CENTER',
+    elems.append(Table([[grafico_atual, comp_tbl, grafico_sugerido]], colWidths=[155,230,155], hAlign='CENTER',
                        style=[('VALIGN',(0,0),(-1,-1),'TOP'), ('ALIGN',(0,0),(-1,-1),'CENTER')]))
     elems.append(Spacer(1, 30))
 
-    # ===== Tabelas lado a lado (mesma largura e alinhadas às margens)
+    # ===== Tabelas "Carteira Atual" x "Proposta"
     dist_fmt = df_dist.copy().sort_values(by="valor", ascending=False)
     dist_fmt["Valor"] = dist_fmt["valor"].apply(_format_number_br)
     dist_fmt["% PL"]  = dist_fmt["Percentual"].apply(lambda x: _format_number_br(x) + "%")
-    dist_fmt = dist_fmt[["Classificação","Valor","% PL"]]
+    dist_fmt = dist_fmt[["Classificação", "Valor", "% PL"]]
 
     modelo_fmt = df_modelo.copy()
     if "Valor Ideal (R$)" in modelo_fmt.columns:
-        modelo_fmt["valor"] = _to_float_br(modelo_fmt["Valor Ideal (R$)"])  # <<< robusto
+        modelo_fmt["valor"] = _to_float_br(modelo_fmt["Valor Ideal (R$)"])
     else:
         base_total = patrimonio_total
         perc = _to_float_br(modelo_fmt["Percentual Ideal"])
-        modelo_fmt["valor"] = base_total * (perc / 100.0)                   # <<< cálculo seguro
+        modelo_fmt["valor"] = base_total * (perc / 100.0)
     modelo_fmt = modelo_fmt.sort_values(by="valor", ascending=False)
     modelo_fmt["Valor"] = modelo_fmt["valor"].apply(_format_number_br)
     modelo_fmt["% PL"]  = modelo_fmt["Percentual Ideal"].apply(lambda x: _format_number_br(x) + "%")
-    modelo_fmt = modelo_fmt[["Classificação","Valor","% PL"]]
+    modelo_fmt = modelo_fmt[["Classificação", "Valor", "% PL"]]
 
     GAP = 20
     half = (doc.width - GAP) / 2
@@ -455,13 +457,12 @@ def generate_pdf(
     tbl1 = Table([dist_fmt.columns.tolist()] + dist_fmt.values.tolist(), colWidths=colspec, hAlign='LEFT')
     tbl2 = Table([modelo_fmt.columns.tolist()] + modelo_fmt.values.tolist(), colWidths=colspec, hAlign='LEFT')
 
-    styl = TableStyle([
+    styl_common = TableStyle([
         ('BACKGROUND',(0,0),(-1,0),colors.gray),
         ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
         ('FONTNAME',(0,0),(-1,0),BOLD_FONT),
         ('FONTNAME',(0,1),(-1,-1),BASE_FONT),
         ('TEXTCOLOR',(0,1),(-1,-1),PRIMARY_COLOR),
-        ('GRID',(0,0),(-1,-1),0.5,colors.black),
         ('ALIGN',(0,0),(-1,-1),'CENTER'),
         ('VALIGN',(0,0),(-1,-1),'TOP'),
         ('FONTSIZE',(0,0),(-1,0),10),
@@ -470,25 +471,26 @@ def generate_pdf(
         ('RIGHTPADDING',(0,0),(-1,-1),6),
         ('TOPPADDING',(0,0),(-1,-1),2),
         ('BOTTOMPADDING',(0,0),(-1,-1),2),
+        # Linhas horizontais claras (sem verticais)
+        ('LINEABOVE',(0,0),(-1,0),0.4,HLINE_COLOR),   # topo do header  # alteração realizada aqui
+        ('LINEBELOW',(0,0),(-1,0),0.4,HLINE_COLOR),   # base do header  # alteração realizada aqui
+        ('LINEBELOW',(0,1),(-1,-1),0.3,HLINE_COLOR),  # linhas entre registros  # alteração realizada aqui
     ])
-    tbl1.setStyle(styl); tbl2.setStyle(styl)
+    tbl1.setStyle(styl_common); tbl2.setStyle(styl_common)  # alteração realizada aqui
 
-    title_center = ParagraphStyle(name="CenteredTitle", parent=styles["Heading2"],
-                                  alignment=TA_CENTER, textColor=PRIMARY_COLOR, fontName=BOLD_FONT)
+    title_center = ParagraphStyle(name="CenteredTitle", parent=styles["Heading2"], alignment=TA_CENTER,
+                                  textColor=PRIMARY_COLOR, fontName=BOLD_FONT)
 
     elems.append(Table([[Paragraph("Carteira Atual", title_center), "", Paragraph("Carteira Proposta", title_center)]],
                        colWidths=[half, GAP, half], hAlign='LEFT',
                        style=[('LEFTPADDING',(0,0),(-1,-1),0), ('RIGHTPADDING',(0,0),(-1,-1),0),
                               ('TOPPADDING',(0,0),(-1,-1),0), ('BOTTOMPADDING',(0,0),(-1,-1),0)]))
-    elems.append(Table([[tbl1, "", tbl2]],
-                       colWidths=[half, GAP, half], hAlign='LEFT',
+    elems.append(Table([[tbl1, "", tbl2]], colWidths=[half, GAP, half], hAlign='LEFT',
                        style=[('VALIGN',(0,0),(-1,-1),'TOP'),
                               ('LEFTPADDING',(0,0),(-1,-1),0), ('RIGHTPADDING',(0,0),(-1,-1),0),
                               ('TOPPADDING',(0,0),(-1,-1),0), ('BOTTOMPADDING',(0,0),(-1,-1),0)]))
 
-    # ============================================================
-    # Gráfico: Liquidez da carteira proposta (R$)
-    # ============================================================
+    # ======================= Gráfico de Liquidez =======================
     def _extract_days(liq):
         m = re.search(r"D\+(\d+)", str(liq))
         return int(m.group(1)) if m else None
@@ -511,7 +513,7 @@ def generate_pdf(
 
     valor_col = "Novo Valor" if "Novo Valor" in ativos_local.columns else "valor_atual"
     liq_faixas = (
-        ativos_local.assign(valor=_to_float_br(ativos_local[valor_col]))  # <<< usa conversão robusta
+        ativos_local.assign(valor=_to_float_br(ativos_local[valor_col]))
                    .groupby("Faixa")["valor"].sum()
                    .reindex(["D+0 (à mercado)","D+0","Até D+5","Até D+15","Até D+60","Até D+180","Acima de D+180"], fill_value=0.0)
                    .reset_index()
@@ -525,28 +527,20 @@ def generate_pdf(
     valores = [liq_faixas.set_index("Faixa").loc[l, "valor"] for l in y_labels]
 
     bars = ax.barh(y_pos, valores, height=0.70)
-
     ax.set_yticks(y_pos, labels=y_labels)
     ax.tick_params(axis='y', labelsize=8, colors=cinza_txt, length=0)
     ax.set_ylabel("Faixa", fontsize=9, color=cinza_txt)
-
-    ax.set_xlabel("")
-    ax.set_xticks([])
-    ax.tick_params(axis='x', length=0, colors=cinza_txt)
-
+    ax.set_xlabel(""); ax.set_xticks([]); ax.tick_params(axis='x', length=0, colors=cinza_txt)
     for side in ["bottom","top","right","left"]:
         ax.spines[side].set_visible(False)
-
     max_v = max(valores) if valores else 0.0
     ax.set_xlim(0, max_v*1.15 if max_v > 0 else 1)
     for rect, val in zip(bars, valores):
-        if val <= 0:
-            continue
+        if val <= 0: continue
         txt = _format_number_br(val)
         ax.text(rect.get_width() + (max_v*0.012 if max_v else 0.02),
                 rect.get_y() + rect.get_height()/2, txt,
                 va='center', ha='left', fontsize=9, color=cinza_txt)
-
     plt.tight_layout(pad=1.0)
     fig.savefig(buf_liq, format='PNG', dpi=150, bbox_inches='tight')
     plt.close(fig); buf_liq.seek(0)
@@ -587,19 +581,24 @@ def generate_pdf(
 
     tbl = Table(data, colWidths=[doc.width*0.6, doc.width*0.2, doc.width*0.2], hAlign="LEFT", repeatRows=1)
     style = TableStyle([
-        ("GRID",(0,0),(-1,-1),0.5,colors.black),
+        # Cabeçalho
         ("BACKGROUND",(0,0),(-1,0),colors.gray),
         ("TEXTCOLOR",(0,0),(-1,0),colors.whitesmoke),
-        ("TEXTCOLOR",(0,1),(-1,-1),PRIMARY_COLOR),
         ("FONTNAME",(0,0),(-1,0),BOLD_FONT),
         ("FONTSIZE",(0,0),(-1,0),10),
         ("ALIGN",(0,0),(-1,0),"CENTER"),
         ("VALIGN",(0,0),(-1,0),"MIDDLE"),
+        # Corpo
+        ("TEXTCOLOR",(0,1),(-1,-1),PRIMARY_COLOR),
         ("FONTNAME",(0,1),(-1,-1),BASE_FONT),
         ("FONTSIZE",(0,1),(-1,-1),8),
         ("ALIGN",(0,1),(0,-1),"LEFT"),
         ("ALIGN",(1,1),(-1,-1),"CENTER"),
         ("VALIGN",(0,1),(-1,-1),"MIDDLE"),
+        # Linhas horizontais claras (sem verticais)
+        ('LINEABOVE',(0,0),(-1,0),0.4,HLINE_COLOR),   # topo header  # alteração realizada aqui
+        ('LINEBELOW',(0,0),(-1,0),0.4,HLINE_COLOR),   # base header  # alteração realizada aqui
+        ('LINEBELOW',(0,1),(-1,-1),0.3,HLINE_COLOR),  # entre linhas  # alteração realizada aqui
     ])
     for i in classification_rows:
         style.add("BACKGROUND",(0,i),(-1,i),colors.lightgrey)
