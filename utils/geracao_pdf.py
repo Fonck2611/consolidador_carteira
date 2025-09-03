@@ -13,7 +13,7 @@ import pandas as pd
 import io
 import os
 import unicodedata
-import re  # usado para extrair D+N
+import re
 from PyPDF2 import PdfReader, PdfWriter
 from datetime import datetime
 
@@ -54,8 +54,13 @@ BASE_FONT = "Helvetica"
 BOLD_FONT = "Helvetica-Bold"
 
 # -------------------------
-# Utilidades
+# Utilidades numéricas
 # -------------------------
+def _to_float_br(series) -> pd.Series:
+    """Converte série com números no formato BR (1.234,56) para float de forma robusta."""
+    s = series.astype(str).str.replace(".", "", regex=False).str.replace(",", ".", regex=False)
+    return pd.to_numeric(s, errors="coerce").fillna(0.0)  # alteração realizada aqui
+
 def _format_number_br(valor: float) -> str:
     try:
         v = float(valor)
@@ -245,13 +250,15 @@ def generate_pdf(
     df_dist = dist_df.copy()
     if "valor" not in df_dist.columns and "valor_atual" in df_dist.columns:
         df_dist = df_dist.rename(columns={"valor_atual": "valor"})
+    # garante que 'valor' é numérico mesmo se vier como string "1.234,56"
+    df_dist["valor"] = _to_float_br(df_dist["valor"])  # alteração realizada aqui
+
     if "Percentual" not in df_dist.columns:
-        total_val = pd.to_numeric(df_dist["valor"], errors="coerce").fillna(0.0).sum()
-        df_dist["Percentual"] = (
-            pd.to_numeric(df_dist["valor"], errors="coerce").fillna(0.0) / total_val * 100 if total_val else 0.0
-        )
+        total_val = df_dist["valor"].sum()
+        df_dist["Percentual"] = (df_dist["valor"] / total_val * 100) if total_val else 0.0
 
     df_modelo = modelo_df.copy()
+    # garante coluna Percentual Ideal presente
     if "Percentual Ideal" not in df_modelo.columns:
         poss = [c for c in df_modelo.columns if "percentual" in c.lower()]
         if poss:
@@ -259,11 +266,14 @@ def generate_pdf(
         else:
             raise ValueError("modelo_df precisa conter a coluna 'Percentual Ideal'.")
 
-    # --- Estado para header
+    # Percentual Ideal como número real (tratando "10,5")
+    df_modelo["Percentual Ideal"] = _to_float_br(df_modelo["Percentual Ideal"])  # alteração realizada aqui
+
+    # Estado global para header
     global patrimonio_total, CLIENTE_NOME, NOME_ASSESSOR, DATA_HOJE_STR, PERFIL_RISCO, APORTE_TEXT
     CLIENTE_NOME = cliente_nome or ""
     NOME_ASSESSOR = nome_assessor or ""
-    patrimonio_total = pd.to_numeric(df_dist["valor"], errors="coerce").fillna(0.0).sum()
+    patrimonio_total = df_dist["valor"].sum()
     DATA_HOJE_STR = _data_hoje_br()
     PERFIL_RISCO  = _inferir_perfil(sugestao)
     APORTE_TEXT   = (sugestao or {}).get("aporte_text", "Sem aporte") or "Sem aporte"
@@ -275,7 +285,7 @@ def generate_pdf(
 
     elems = []
 
-    # --- Gráficos donut
+    # ===== Gráficos donut
     def make_doughnut_atual(df, percent_col):
         sorted_df = df.sort_values(by=percent_col, ascending=False).reset_index(drop=True)
         labels = sorted_df["Classificação"].tolist()
@@ -319,7 +329,7 @@ def generate_pdf(
         plt.close(fig); buf.seek(0)
         return buf
 
-    # --- Documento sem paddings
+    # ===== Documento sem paddings
     buffer_relatorio = io.BytesIO()
     doc = BaseDocTemplate(
         buffer_relatorio, pagesize=A4,
@@ -339,7 +349,7 @@ def generate_pdf(
     buf1, color_map = make_doughnut_atual(df_dist, "Percentual")
     buf2 = make_doughnut_modelo(df_modelo, "Percentual Ideal", color_map)
 
-    # --- Tabela comparativa central (barras)
+    # ===== Tabela comparativa central (barras)
     temp_df = pd.DataFrame({
         "Classificação": list(dict.fromkeys(list(df_dist["Classificação"]) + list(df_modelo["Classificação"])))
     })
@@ -401,18 +411,22 @@ def generate_pdf(
                        style=[('VALIGN',(0,0),(-1,-1),'TOP'), ('ALIGN',(0,0),(-1,-1),'CENTER')]))
     elems.append(Spacer(1, 30))
 
-    # --- Tabelas lado a lado (mesma largura e alinhadas às margens)
+    # ===== Tabelas lado a lado (mesma largura e alinhadas às margens)
     dist_fmt = df_dist.copy().sort_values(by="valor", ascending=False)
-    dist_fmt["valor"] = pd.to_numeric(dist_fmt["valor"], errors="coerce").fillna(0.0)
     dist_fmt["Valor"] = dist_fmt["valor"].apply(_format_number_br)
     dist_fmt["% PL"]  = dist_fmt["Percentual"].apply(lambda x: _format_number_br(x) + "%")
     dist_fmt = dist_fmt[["Classificação","Valor","% PL"]]
 
     modelo_fmt = df_modelo.copy()
+
+    # >>> CÁLCULO CORRIGIDO DO "VALOR" DA PROPOSTA <<<  # alteração realizada aqui
     if "Valor Ideal (R$)" in modelo_fmt.columns:
-        modelo_fmt["valor"] = pd.to_numeric(modelo_fmt["Valor Ideal (R$)"], errors="coerce").fillna(0.0)
+        modelo_fmt["valor"] = _to_float_br(modelo_fmt["Valor Ideal (R$)"])
     else:
-        modelo_fmt["valor"] = 0.0
+        base_total = patrimonio_total  # pode incluir aporte futuro, se necessário
+        perc = _to_float_br(modelo_fmt["Percentual Ideal"])
+        modelo_fmt["valor"] = base_total * (perc / 100.0)
+
     modelo_fmt = modelo_fmt.sort_values(by="valor", ascending=False)
     modelo_fmt["Valor"] = modelo_fmt["valor"].apply(_format_number_br)
     modelo_fmt["% PL"]  = modelo_fmt["Percentual Ideal"].apply(lambda x: _format_number_br(x) + "%")
@@ -488,40 +502,35 @@ def generate_pdf(
                    .reset_index()
     )
 
-    # ===== Aparência do gráfico (ajustes solicitados) =====
-    cinza_txt = "#6B7280"  # cinza médio – legível   # alteração realizada aqui
+    cinza_txt = "#6B7280"
     buf_liq = io.BytesIO()
-    fig, ax = plt.subplots(figsize=(7.5, 3.4))  # um pouco mais alto               # alteração realizada aqui
+    fig, ax = plt.subplots(figsize=(7.5, 3.4))
     y_labels = ["Acima de D+180","Até D+180","Até D+60","Até D+15","Até D+5","D+0","D+0 (à mercado)"]
     y_pos = list(range(len(y_labels)))
     valores = [liq_faixas.set_index("Faixa").loc[l, "valor"] for l in y_labels]
 
-    bars = ax.barh(y_pos, valores, height=0.70)  # barras mais largas               # alteração realizada aqui
+    bars = ax.barh(y_pos, valores, height=0.70)
 
-    # Rótulos eixo Y menores e em cinza; sem “tracinho” (tick) entre rótulo e barra
     ax.set_yticks(y_pos, labels=y_labels)
-    ax.tick_params(axis='y', labelsize=8, colors=cinza_txt, length=0)               # alteração realizada aqui
-    ax.set_ylabel("Faixa", fontsize=9, color=cinza_txt)                              # alteração realizada aqui
+    ax.tick_params(axis='y', labelsize=8, colors=cinza_txt, length=0)
+    ax.set_ylabel("Faixa", fontsize=9, color=cinza_txt)
 
-    # Eixo X oculto
     ax.set_xlabel("")
     ax.set_xticks([])
     ax.tick_params(axis='x', length=0, colors=cinza_txt)
 
-    # Sem spines para ficar limpo
     for side in ["bottom","top","right","left"]:
         ax.spines[side].set_visible(False)
 
-    # Rótulos numéricos fora da barra – não mostrar quando valor == 0
     max_v = max(valores) if valores else 0.0
     ax.set_xlim(0, max_v*1.15 if max_v > 0 else 1)
     for rect, val in zip(bars, valores):
-        if val <= 0:   # não escreve quando zero                              # alteração realizada aqui
+        if val <= 0:
             continue
         txt = _format_number_br(val)
         ax.text(rect.get_width() + (max_v*0.012 if max_v else 0.02),
                 rect.get_y() + rect.get_height()/2, txt,
-                va='center', ha='left', fontsize=9, color=cinza_txt)          # alteração realizada aqui
+                va='center', ha='left', fontsize=9, color=cinza_txt)
 
     plt.tight_layout(pad=1.0)
     fig.savefig(buf_liq, format='PNG', dpi=150, bbox_inches='tight')
@@ -532,7 +541,7 @@ def generate_pdf(
                            ParagraphStyle(name="H2_LIQ", parent=styles["Heading2"],
                                           fontName=BOLD_FONT, alignment=TA_CENTER)))
     elems.append(Spacer(1, 6))
-    elems.append(Image(buf_liq, width=doc.width, height=182))  # leve ajuste de altura  # alteração realizada aqui
+    elems.append(Image(buf_liq, width=doc.width, height=182))
 
     # --- Página seguinte — Sugestão de Carteira (detalhada)
     elems.append(PageBreak())
