@@ -33,7 +33,7 @@ NOME_ASSESSOR = ""
 
 # Cores
 PRIMARY_COLOR = colors.HexColor("#122940")
-HLINE_COLOR   = colors.HexColor("#D6DBE2")  # cinza claro para linhas horizontais  # alteração realizada aqui
+HLINE_COLOR   = colors.HexColor("#D6DBE2")  # cinza claro para linhas horizontais
 
 # Variáveis do cabeçalho
 DATA_HOJE_STR = ""
@@ -58,11 +58,6 @@ BOLD_FONT = "Helvetica-Bold"
 # Utilidades numéricas
 # -------------------------
 def _to_float_br(series) -> pd.Series:
-    """
-    Converte série com números possivelmente em formato BR (1.234,56),
-    aceita também já numéricos (float/int) e strings US (1234.56).
-    Remove 'R$' e '%' com segurança.
-    """
     def conv(x):
         if pd.isna(x):
             return 0.0
@@ -409,10 +404,10 @@ def generate_pdf(
         ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
         ('BACKGROUND',(0,0),(-1,0),colors.gray),
         ('TEXTCOLOR',(0,1),(-1,-1),PRIMARY_COLOR),
-        # Linhas horizontais claras (sem linhas verticais)
-        ('LINEABOVE',(0,0),(-1,0),0.4,HLINE_COLOR),   # topo do header  # alteração realizada aqui
-        ('LINEBELOW',(0,0),(-1,0),0.4,HLINE_COLOR),   # base do header  # alteração realizada aqui
-        ('LINEBELOW',(0,1),(-1,-1),0.3,HLINE_COLOR),  # linhas entre as linhas de dados  # alteração realizada aqui
+        # Linhas horizontais (sem verticais)
+        ('LINEABOVE',(0,0),(-1,0),0.4,HLINE_COLOR),
+        ('LINEBELOW',(0,0),(-1,0),0.4,HLINE_COLOR),
+        ('LINEBELOW',(0,1),(-1,-1),0.3,HLINE_COLOR),
     ]))
 
     def titulo_com_traco(texto):
@@ -471,12 +466,12 @@ def generate_pdf(
         ('RIGHTPADDING',(0,0),(-1,-1),6),
         ('TOPPADDING',(0,0),(-1,-1),2),
         ('BOTTOMPADDING',(0,0),(-1,-1),2),
-        # Linhas horizontais claras (sem verticais)
-        ('LINEABOVE',(0,0),(-1,0),0.4,HLINE_COLOR),   # topo do header  # alteração realizada aqui
-        ('LINEBELOW',(0,0),(-1,0),0.4,HLINE_COLOR),   # base do header  # alteração realizada aqui
-        ('LINEBELOW',(0,1),(-1,-1),0.3,HLINE_COLOR),  # linhas entre registros  # alteração realizada aqui
+        # Linhas horizontais (sem verticais)
+        ('LINEABOVE',(0,0),(-1,0),0.4,HLINE_COLOR),
+        ('LINEBELOW',(0,0),(-1,0),0.4,HLINE_COLOR),
+        ('LINEBELOW',(0,1),(-1,-1),0.3,HLINE_COLOR),
     ])
-    tbl1.setStyle(styl_common); tbl2.setStyle(styl_common)  # alteração realizada aqui
+    tbl1.setStyle(styl_common); tbl2.setStyle(styl_common)
 
     title_center = ParagraphStyle(name="CenteredTitle", parent=styles["Heading2"], alignment=TA_CENTER,
                                   textColor=PRIMARY_COLOR, fontName=BOLD_FONT)
@@ -528,6 +523,7 @@ def generate_pdf(
 
     bars = ax.barh(y_pos, valores, height=0.70)
     ax.set_yticks(y_pos, labels=y_labels)
+    ax.invert_yaxis()  # garante que o primeiro item da lista fique NO TOPO (Acima de D+180)  # alteração realizada aqui
     ax.tick_params(axis='y', labelsize=8, colors=cinza_txt, length=0)
     ax.set_ylabel("Faixa", fontsize=9, color=cinza_txt)
     ax.set_xlabel(""); ax.set_xticks([]); ax.tick_params(axis='x', length=0, colors=cinza_txt)
@@ -595,10 +591,10 @@ def generate_pdf(
         ("ALIGN",(0,1),(0,-1),"LEFT"),
         ("ALIGN",(1,1),(-1,-1),"CENTER"),
         ("VALIGN",(0,1),(-1,-1),"MIDDLE"),
-        # Linhas horizontais claras (sem verticais)
-        ('LINEABOVE',(0,0),(-1,0),0.4,HLINE_COLOR),   # topo header  # alteração realizada aqui
-        ('LINEBELOW',(0,0),(-1,0),0.4,HLINE_COLOR),   # base header  # alteração realizada aqui
-        ('LINEBELOW',(0,1),(-1,-1),0.3,HLINE_COLOR),  # entre linhas  # alteração realizada aqui
+        # Linhas horizontais (sem verticais)
+        ('LINEABOVE',(0,0),(-1,0),0.4,HLINE_COLOR),
+        ('LINEBELOW',(0,0),(-1,0),0.4,HLINE_COLOR),
+        ('LINEBELOW',(0,1),(-1,-1),0.3,HLINE_COLOR),
     ])
     for i in classification_rows:
         style.add("BACKGROUND",(0,i),(-1,i),colors.lightgrey)
@@ -624,4 +620,3 @@ def generate_pdf(
     out = io.BytesIO()
     writer.write(out); out.seek(0)
     return out.read()
-
