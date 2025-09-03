@@ -294,6 +294,11 @@ def generate_pdf(
         s.textColor = PRIMARY_COLOR
         s.fontName  = BASE_FONT
 
+    # ••• Estilo de títulos reutilizável
+    title_center = ParagraphStyle(name="CenteredTitle", parent=styles["Heading2"],
+                                  alignment=TA_CENTER, textColor=PRIMARY_COLOR,
+                                  fontName=BOLD_FONT)
+
     elems = []
 
     # ===== Gráficos donut
@@ -473,9 +478,6 @@ def generate_pdf(
     ])
     tbl1.setStyle(styl_common); tbl2.setStyle(styl_common)
 
-    title_center = ParagraphStyle(name="CenteredTitle", parent=styles["Heading2"], alignment=TA_CENTER,
-                                  textColor=PRIMARY_COLOR, fontName=BOLD_FONT)
-
     elems.append(Table([[Paragraph("Carteira Atual", title_center), "", Paragraph("Carteira Proposta", title_center)]],
                        colWidths=[half, GAP, half], hAlign='LEFT',
                        style=[('LEFTPADDING',(0,0),(-1,-1),0), ('RIGHTPADDING',(0,0),(-1,-1),0),
@@ -523,7 +525,7 @@ def generate_pdf(
 
     bars = ax.barh(y_pos, valores, height=0.70)
     ax.set_yticks(y_pos, labels=y_labels)
-    ax.invert_yaxis()  # garante que o primeiro item da lista fique NO TOPO (Acima de D+180)  # alteração realizada aqui
+    ax.invert_yaxis()  # garante o "Acima de D+180" no topo
     ax.tick_params(axis='y', labelsize=8, colors=cinza_txt, length=0)
     ax.set_ylabel("Faixa", fontsize=9, color=cinza_txt)
     ax.set_xlabel(""); ax.set_xticks([]); ax.tick_params(axis='x', length=0, colors=cinza_txt)
@@ -548,8 +550,82 @@ def generate_pdf(
     elems.append(Spacer(1, 6))
     elems.append(Image(buf_liq, width=doc.width, height=182))
 
+    # ======= NOVA PÁGINA: Diferenças / Alocados / Resgatados =======  # alteração realizada aqui
+    elems.append(PageBreak())  # começa a nova página logo após os gráficos
+
+    # -- Diferenças entre Atual e Sugerida --
+    all_classes = set(df_dist["Classificação"]).union(set(df_modelo["Classificação"]))
+    resumo_rows = []
+    for cls in sorted(all_classes, key=lambda x: str(x)):
+        pa = float(df_dist.loc[df_dist["Classificação"] == cls, "Percentual"].sum())
+        ps = float(df_modelo.loc[df_modelo["Classificação"] == cls, "Percentual Ideal"].sum())
+        adj = round(ps - pa, 2)
+        resumo_rows.append([cls,
+                            _format_number_br(pa) + "%",                 # Atual (%)
+                            _format_number_br(ps) + "%",                 # Sugerida (%)
+                            _format_number_br(adj) + "%",                # Ajuste (%)
+                            "Aumentar" if adj > 0 else ("Reduzir" if adj < 0 else "Inalterado")])
+
+    dif_cols = ["Classificação","Atual (%)","Sugerida (%)","Ajuste (%)","Ação"]
+    dif_tbl = Table([dif_cols] + resumo_rows,
+                    colWidths=[doc.width*0.34, doc.width*0.16, doc.width*0.16, doc.width*0.16, doc.width*0.18],
+                    hAlign='LEFT')
+    dif_tbl.setStyle(styl_common)  # mesmo estilo das tabelas principais
+    elems.append(Paragraph("Diferenças entre Atual e Sugerida", title_center))  # título
+    elems.append(dif_tbl)
+    elems.append(Spacer(1, 18))
+
+    # -- Ativos Alocados --
+    if "Valor Realocado" in ativos_df.columns:
+        alocados = ativos_df.copy()
+        for c in ["valor_atual", "Novo Valor", "Valor Realocado"]:
+            if c in alocados.columns:
+                alocados[c] = _to_float_br(alocados[c])
+        alocados = alocados[alocados["Valor Realocado"] > 0].copy()
+        alocados = alocados.rename(columns={"estrategia": "Ativo"})
+        if not alocados.empty:
+            alocados["Valor Atual (R$)"]     = alocados["valor_atual"].apply(_format_number_br)
+            alocados["Novo Valor (R$)"]      = alocados["Novo Valor"].apply(_format_number_br)
+            alocados["Valor Realocado (R$)"] = alocados["Valor Realocado"].apply(_format_number_br)
+            cols_a = ["Classificação","Ativo","Valor Atual (R$)","Valor Realocado (R$)","Novo Valor (R$)"]
+            alocados_tbl = Table([cols_a] + alocados[cols_a].values.tolist(),
+                                 colWidths=[doc.width*0.18, doc.width*0.52, doc.width*0.10, doc.width*0.10, doc.width*0.10],
+                                 hAlign='LEFT')
+            alocados_tbl.setStyle(styl_common)
+            elems.append(Paragraph("Ativos Alocados", title_center))
+            elems.append(alocados_tbl)
+            elems.append(Spacer(1, 18))
+        else:
+            elems.append(Paragraph("Ativos Alocados", title_center))
+            elems.append(Paragraph("_Nenhum ativo alocado._", styles["Italic"]))
+            elems.append(Spacer(1, 18))
+
+        # -- Ativos Resgatados --
+        resgatados = ativos_df.copy()
+        for c in ["valor_atual", "Novo Valor", "Valor Realocado"]:
+            if c in resgatados.columns:
+                resgatados[c] = _to_float_br(resgatados[c])
+        resgatados = resgatados[resgatados["Valor Realocado"] < 0].copy()
+        resgatados = resgatados.rename(columns={"estrategia": "Ativo"})
+        if not resgatados.empty:
+            resgatados["Valor Atual (R$)"]     = resgatados["valor_atual"].apply(_format_number_br)
+            resgatados["Novo Valor (R$)"]      = resgatados["Novo Valor"].apply(_format_number_br)
+            resgatados["Valor Realocado (R$)"] = resgatados["Valor Realocado"].apply(_format_number_br)
+            cols_r = ["Classificação","Ativo","Valor Atual (R$)","Valor Realocado (R$)","Novo Valor (R$)"]
+            resgatados_tbl = Table([cols_r] + resgatados[cols_r].values.tolist(),
+                                   colWidths=[doc.width*0.18, doc.width*0.52, doc.width*0.10, doc.width*0.10, doc.width*0.10],
+                                   hAlign='LEFT')
+            resgatados_tbl.setStyle(styl_common)
+            elems.append(Paragraph("Ativos Resgatados", title_center))
+            elems.append(resgatados_tbl)
+            elems.append(Spacer(1, 6))
+        else:
+            elems.append(Paragraph("Ativos Resgatados", title_center))
+            elems.append(Paragraph("_Nenhum ativo resgatado._", styles["Italic"]))
+            elems.append(Spacer(1, 6))
+
     # --- Página seguinte — Sugestão de Carteira (detalhada)
-    elems.append(PageBreak())
+    elems.append(PageBreak())  # esta página vem após a nova página  # alteração realizada aqui
     elems.append(Paragraph("Sugestão de Carteira",
                            ParagraphStyle(name="H2", parent=styles["Heading2"], fontName=BOLD_FONT)))
     elems.append(Spacer(1, 12))
