@@ -79,7 +79,7 @@ def _inferir_perfil(sugestao: dict) -> str:
         return "MODERADA"
     if "sofist" in cand:
         return "SOFISTICADA"
-    if "person" in cand or "custom" in cand ou "personalizada" in cand:
+    if "person" in cand or "custom" in cand or "personalizada" in cand:
         return "PERSONALIZADA"
     return "PERSONALIZADA"
 
@@ -557,3 +557,4 @@ def generate_pdf(
     writer.write(output_final)
     output_final.seek(0)
     return output_final.read()
+
