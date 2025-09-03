@@ -91,13 +91,54 @@ def _data_hoje_br() -> str:
     hoje = datetime.today()
     return f"{hoje.day} de {meses[hoje.month-1]} de {hoje.year}"
 
+def _normalize_text(s: str) -> str:
+    s = str(s or "").strip().lower()
+    s = unicodedata.normalize("NFKD", s)
+    s = "".join(ch for ch in s if not unicodedata.category(ch).startswith("M"))
+    return s
+
+def _first_nonempty(d: dict, keys):
+    for k in keys:
+        cur = d
+        ok = True
+        for part in k.split("."):
+            if isinstance(cur, dict) and part in cur:
+                cur = cur[part]
+            else:
+                ok = False
+                break
+        if ok and str(cur).strip() not in ("", "None"):
+            return cur
+    return ""
+
 def _inferir_perfil(sugestao: dict) -> str:
-    cand = (sugestao or {}).get("perfil") or (sugestao or {}).get("carteira_modelo") or ""
-    cand = str(cand).strip().lower()
-    if "conserv" in cand: return "CONSERVADORA"
-    if "moder" in cand:  return "MODERADA"
-    if "sofist" in cand: return "SOFISTICADA"
-    if "person" in cand or "custom" in cand or "personalizada" in cand: return "PERSONALIZADA"
+    sug = sugestao or {}
+
+    # tenta várias chaves diretas
+    cand = _first_nonempty(sug, [
+        "carteira_modelo", "perfil", "perfil_sugerido", "perfil_risco",
+        "profile", "risk_profile"
+    ])
+
+    # tenta códigos/IDs de perfil
+    codigo = _first_nonempty(sug, ["perfil_codigo", "perfil_id", "perfilCode", "risk_code"])
+    code = str(codigo).strip().upper()
+    if code in {"1","C","CONS","CONSERVADOR","CONSERVADORA"}: return "CONSERVADORA"
+    if code in {"2","M","MOD","MODERADO","MODERADA"}:         return "MODERADA"
+    if code in {"3","S","A","ARROJADO","SOFISTICADO","SOFISTICADA"}: return "SOFISTICADA"
+    if code in {"4","P","PERSONALIZADO","PERSONALIZADA"}:     return "PERSONALIZADA"
+
+    # normaliza texto e lida com typos
+    c = _normalize_text(cand)
+    if any(k in c for k in ["conserv", "consev", "defensiv", "baixo risco"]):
+        return "CONSERVADORA"
+    if any(k in c for k in ["moder", "balancead", "medio risco"]):
+        return "MODERADA"
+    if any(k in c for k in ["sofist", "arroj", "agress", "alto risco"]):
+        return "SOFISTICADA"
+    if any(k in c for k in ["person", "custom", "sob medida", "personaliz"]):
+        return "PERSONALIZADA"
+
     return "PERSONALIZADA"
 
 # -------------------------
@@ -764,3 +805,4 @@ def generate_pdf(
     out = io.BytesIO()
     writer.write(out); out.seek(0)
     return out.read()
+
