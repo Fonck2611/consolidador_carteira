@@ -153,11 +153,22 @@ def show():
 
     if st.button("Avançar para Sugestão de Ajustes"):
         if carteira_tipo == "Personalizada" and round(soma_percentual, 2) != 100.00:
-            st.warning("Ajuste a carteira sugerida para que totalize 100%." )
+            st.warning("Ajuste a carteira sugerida para que totalize 100%.")
         else:
             st.session_state.carteira_modelo = carteira_tipo
             if carteira_tipo == "Personalizada":
                 st.session_state.modelo_personalizado_dict = dict(
-                    zip(modelo_df["Classificação"], modelo_df["Percentual"]) )
+                    zip(modelo_df["Classificação"], modelo_df["Percentual"])
+                )
+    
+            # >>> adição importante: empacotar 'sugestao'
+            st.session_state.sugestao = {
+                "carteira_modelo": carteira_tipo,
+                # opcionalmente, guarde o modelo personalizado para outras telas usarem:
+                "modelo_personalizado": st.session_state.get("modelo_personalizado_dict", None)
+            }
+            # <<<
+    
             st.session_state.etapa = 4
             st.rerun()
+
