@@ -8,18 +8,14 @@ def sql_get_df():
     """
     Lê o arquivo liquidez_ativos.xlsx que fica na mesma pasta deste script.
     """
-    # alteração realizada aqui: determina o diretório deste arquivo
     script_dir = Path(__file__).parent
     file_path = script_dir / "liquidez_ativos.xlsx"
-    
     try:
-        # alteração realizada aqui: lendo do caminho correto
         df = pd.read_excel(
             file_path,
             dtype={"ativo": str, "liquidez": str, "vencimento": str}
         )
     except Exception as e:
-        # alteração realizada aqui: loga o caminho e o erro
         print(f"sql_get_df – não encontrou o arquivo em {file_path}: {e}")
         df = pd.DataFrame(columns=["ativo", "liquidez", "vencimento"])
     return df
@@ -27,6 +23,25 @@ def sql_get_df():
 def format_valor_br(valor):
     s = f"{valor:,.2f}"
     return s.replace(",", "X").replace(".", ",").replace("X", ".")
+
+def parse_valor_br(txt: str):
+    """
+    Converte '1.234.567,89' ou '1234567,89' (com/sem R$ e espaços) em float.
+    Retorna None se vazio/inválido.
+    """
+    if txt is None:
+        return None
+    s = str(txt).strip()
+    if s == "":
+        return None
+    s = s.upper().replace("R$", "").replace(" ", "")
+    # remove separador de milhar e troca vírgula decimal por ponto
+    s = s.replace(".", "").replace(",", ".")
+    try:
+        v = float(s)
+        return v if v >= 0 else None
+    except Exception:
+        return None
 
 def show():
     st.header("2. Detalhamento e Classificação dos Ativos")
@@ -47,7 +62,6 @@ def show():
     # 1) Puxa liquidez do SQL
     df_sql = sql_get_df()
     liq_map = dict(zip(df_sql["ativo"], df_sql["liquidez"]))
-    # Aplica liquidez do SQL ou vazio
     df["Liquidez"] = df["estrategia"].map(liq_map).fillna("")
 
     # 2) Fallback MMM/YYYY para D+X (dia 15 do mês)
@@ -70,17 +84,13 @@ def show():
 
     # 3) Regras adicionais de fallback
     def compute_liq(r):
-        # valor do SQL
         if r["Liquidez"]:
             return r["Liquidez"]
-        # fallback MMM/YYYY
         fb = calc_fallback(r["estrategia"])
         if fb:
             return fb
-        # sufixos específicos -> D+2
         if re.search(r"(?:3|4|11|34|39)$", str(r["estrategia"])):
             return "D+2"
-        # se contém "Tesouro" -> D+0
         if "tesouro" in str(r["estrategia"]).lower():
             return "D+0 (à mercado)"
         return ""
@@ -144,7 +154,9 @@ def show():
 
         rec = row.to_dict()
         rec["Classificação"] = nova_cls
-        rec["Liquidez"] = nova_liq.strip() if nova_liq.strip() == "No Vencimento" else f"D+{nova_liq.strip()}"
+        rec["Liquidez"] = (
+            nova_liq.strip() if nova_liq.strip() == "No Vencimento" else f"D+{nova_liq.strip()}"
+        )
         novos.append(rec)
 
         # Detalhes expandidos
@@ -173,7 +185,30 @@ def show():
                 st.markdown("</div>", unsafe_allow_html=True)
             st.markdown("---")
 
+    # Persistimos a tabela editada
     st.session_state.ativos_df = pd.DataFrame(novos).to_dict("records")
+
+    # ======================= CAMPO DE APORTE (opcional) =======================
+    # valor default (se já informado em sessão) formatado em BR
+    aporte_default_txt = ""
+    if st.session_state.get("aporte_valor") is not None:
+        aporte_default_txt = f"{format_valor_br(st.session_state['aporte_valor'])}"
+
+    aporte_txt = st.text_input(
+        "O cliente deseja realizar um aporte? Se não, deixe em branco",
+        value=aporte_default_txt,
+        placeholder="Ex.: 50.000,00"
+    )
+
+    aporte_valor = parse_valor_br(aporte_txt)
+    if aporte_txt.strip() != "" and aporte_valor is None:
+        st.warning("Valor de aporte inválido. Use o formato 1.234,56 (apenas números).")
+    # Guarda no estado (None se vazio/inválido)
+    st.session_state.aporte_valor = aporte_valor
+    st.session_state.aporte_text = (
+        f"R$ {format_valor_br(aporte_valor)}" if aporte_valor is not None else ""
+    )
+    # ===================== FIM – CAMPO DE APORTE (opcional) ===================
 
     if st.button("Avançar para Comparação com Carteira Modelo"):
         if all(r["Classificação"] for r in novos):
