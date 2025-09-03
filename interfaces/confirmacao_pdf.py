@@ -241,14 +241,15 @@ def show():
 
     # === GERAÇÃO E DOWNLOAD DO PDF ===
     # alteração realizada aqui: agora generate_pdf devolve bytes (sem gravar em disco)
+    sugestao = st.session_state.get("sugestao", {"carteira_modelo": st.session_state.get("carteira_modelo")})
     pdf_bytes = generate_pdf(
         dist_df=dist_df,
-        modelo_df=modelo_df,
-        resumo_df=res_df,
-        sugestao=sugestao,
+        modelo_df=modelo_df,          # já vem da etapa anterior
+        resumo_df=resumo_df,          # se existir
+        sugestao=sugestao,            # <<<<< AQUI
         ativos_df=ativos_df,
-        cliente_nome=cliente_nome or "",
-        nome_assessor=nome_assessor or "",
+        cliente_nome=cliente,
+        nome_assessor=assessor,
     )
     st.download_button("Gerar e Baixar PDF", pdf_bytes, "relatorio_carteira.pdf", "application/pdf")  # alteração realizada aqui
 
@@ -281,4 +282,5 @@ def show():
     if st.button("Voltar para Sugestões"):
         st.session_state.etapa = 4
         st.rerun()
+
 
