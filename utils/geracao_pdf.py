@@ -1,6 +1,6 @@
 # utils/geracao_pdf.py
 from reportlab.platypus import (
-    BaseDocTemplate, PageTemplate, Frame,           # alteração realizada aqui
+    BaseDocTemplate, PageTemplate, Frame,
     Table, TableStyle, Paragraph, Spacer, Image, PageBreak
 )
 from reportlab.platypus import Table as InnerTable
@@ -13,11 +13,11 @@ import pandas as pd
 import io
 import os
 import unicodedata
-import re                                           # ← usado para extrair D+N  # alteração realizada aqui
+import re  # <- usado para extrair D+N  # alteração realizada aqui
 from PyPDF2 import PdfReader, PdfWriter
 from datetime import datetime
 
-# === Matplotlib (garantir geração dos gráficos em ambiente headless)
+# === Matplotlib (headless)
 import matplotlib
 matplotlib.use("Agg")
 import matplotlib.pyplot as plt
@@ -25,7 +25,7 @@ import matplotlib.pyplot as plt
 from utils.cores import PALETTE
 
 # =========================
-# Estado global simples (para header)
+# Estado global (para header)
 # =========================
 patrimonio_total = 0.0
 CLIENTE_NOME = ""
@@ -34,12 +34,12 @@ NOME_ASSESSOR = ""
 # Cor primária de texto
 PRIMARY_COLOR = colors.HexColor("#122940")
 
-# Variáveis do novo cabeçalho
-DATA_HOJE_STR = ""          # ex.: "28 de julho de 2025"
+# Variáveis do cabeçalho
+DATA_HOJE_STR = ""
 PERFIL_RISCO = "PERSONALIZADA"
-APORTE_TEXT = "Sem aporte"  # preparado para virar variável
+APORTE_TEXT = "Sem aporte"
 
-# Bloco de contato (topo direito)
+# Contato (topo direito)
 CONTACT_LINES = [
     "Av. Magalhães de Castro, 4800 – 1º andar",
     "Continental Tower (Torre 3)",
@@ -49,9 +49,7 @@ CONTACT_LINES = [
     "www.criteriafg.com.br",
 ]
 
-# -------------------------
-# Fontes (Helvetica)
-# -------------------------
+# Fontes
 BASE_FONT = "Helvetica"
 BOLD_FONT = "Helvetica-Bold"
 
@@ -67,103 +65,87 @@ def _format_number_br(valor: float) -> str:
     return s.replace(",", "v").replace(".", ",").replace("v", ".")
 
 def _data_hoje_br() -> str:
-    meses = [
-        "janeiro", "fevereiro", "março", "abril", "maio", "junho",
-        "julho", "agosto", "setembro", "outubro", "novembro", "dezembro"
-    ]
+    meses = ["janeiro","fevereiro","março","abril","maio","junho",
+             "julho","agosto","setembro","outubro","novembro","dezembro"]
     hoje = datetime.today()
     return f"{hoje.day} de {meses[hoje.month-1]} de {hoje.year}"
 
 def _inferir_perfil(sugestao: dict) -> str:
     cand = (sugestao or {}).get("perfil") or (sugestao or {}).get("carteira_modelo") or ""
     cand = str(cand).strip().lower()
-    if "conserv" in cand:
-        return "CONSERVADORA"
-    if "moder" in cand:
-        return "MODERADA"
-    if "sofist" in cand:
-        return "SOFISTICADA"
-    if "person" in cand or "custom" in cand or "personalizada" in cand:
-        return "PERSONALIZADA"
+    if "conserv" in cand: return "CONSERVADORA"
+    if "moder" in cand:  return "MODERADA"
+    if "sofist" in cand: return "SOFISTICADA"
+    if "person" in cand or "custom" in cand or "personalizada" in cand: return "PERSONALIZADA"
     return "PERSONALIZADA"
 
 # -------------------------
-# Cabeçalho/Rodapé
+# Cabeçalho / Rodapé
 # -------------------------
 def draw_header(canvas, doc):
     canvas.saveState()
     page_width, page_height = A4
 
-    left = doc.leftMargin
+    left  = doc.leftMargin
     right = page_width - doc.rightMargin
     top_y = page_height - 36
 
-    # ====== Título e data (lado esquerdo) ======
+    # Título e data
     canvas.setFillColor(PRIMARY_COLOR)
     canvas.setFont(BOLD_FONT, 18)
     canvas.drawString(left, top_y, "Realocação de Portfólio")
-
     canvas.setFont(BASE_FONT, 10)
     canvas.drawString(left, top_y - 20, DATA_HOJE_STR or _data_hoje_br())
 
-    # ====== Contato (topo direito) ======
-    contact_x = right
-    contact_y = top_y
+    # Contatos
     canvas.setFont(BASE_FONT, 7)
-    canvas.setFillColor(PRIMARY_COLOR)
     line_gap = 11
     for i, line in enumerate(CONTACT_LINES):
-        canvas.drawRightString(contact_x, contact_y - i * line_gap, line)
-    after_contact_y = contact_y - (len(CONTACT_LINES) - 1) * line_gap
+        canvas.drawRightString(right, top_y - i*line_gap, line)
 
-    # ====== Linha divisória ======
+    # Linha divisória
+    after_contact_y = top_y - (len(CONTACT_LINES)-1)*line_gap
     line_y = min(top_y - 34, after_contact_y - 16)
     canvas.setStrokeColor(PRIMARY_COLOR)
     canvas.setLineWidth(0.6)
     canvas.line(left, line_y, right, line_y)
 
-    # ====== Campos ======
+    # Campos
     label_color = colors.HexColor("#5D6B7A")
-    field_bg = colors.HexColor("#F1F3F5")
-    field_radius = 4
-    field_height = 16
-
-    col_gap = 20
-    col_width = (right - left - col_gap) / 2
+    field_bg    = colors.HexColor("#F1F3F5")
+    field_r     = 4
+    field_h     = 16
+    col_gap     = 20
+    col_w       = (right - left - col_gap) / 2
 
     # Linha 1
     row1_label_y = line_y - 16
-    row1_field_y = row1_label_y - 10  # gap menor
+    row1_field_y = row1_label_y - 10  # ↓ gap menor título→valor
 
     # Nome do cliente
-    canvas.setFillColor(label_color)
-    canvas.setFont(BOLD_FONT, 9)
+    canvas.setFillColor(label_color); canvas.setFont(BOLD_FONT, 9)
     canvas.drawString(left, row1_label_y, "Nome do cliente")
-
     canvas.setFillColor(field_bg)
-    canvas.roundRect(left, row1_field_y - field_height + 2, col_width, field_height, field_radius, stroke=0, fill=1)
-    canvas.setFillColor(PRIMARY_COLOR)
-    canvas.setFont(BOLD_FONT, 10)
-    canvas.drawString(left + 6, row1_field_y - field_height + 5, (CLIENTE_NOME or "").upper())
+    canvas.roundRect(left, row1_field_y - field_h + 2, col_w, field_h, field_r, stroke=0, fill=1)
+    canvas.setFillColor(PRIMARY_COLOR); canvas.setFont(BOLD_FONT, 10)
+    canvas.drawString(left + 6, row1_field_y - field_h + 5, (CLIENTE_NOME or "").upper())
 
     # Perfil
-    perf_left = left + col_width + col_gap
-    canvas.setFillColor(label_color)
-    canvas.setFont(BOLD_FONT, 9)
+    perf_left = left + col_w + col_gap
+    canvas.setFillColor(label_color); canvas.setFont(BOLD_FONT, 9)
     canvas.drawString(perf_left, row1_label_y, "Perfil de risco sugerido")
 
-    pills = ["CONSERVADORA", "MODERADA", "SOFISTICADA", "PERSONALIZADA"]
-    sel = (PERFIL_RISCO or "PERSONALIZADA").upper()
-    pill_h = field_height
-    pill_gap = 8
+    pills     = ["CONSERVADORA","MODERADA","SOFISTICADA","PERSONALIZADA"]
+    sel       = (PERFIL_RISCO or "PERSONALIZADA").upper()
+    pill_h    = field_h
+    pill_gap  = 8
     pill_font = 8
-    pad_x = 8
-
-    pill_width = (col_width - (len(pills) - 1) * pill_gap) / len(pills)
+    pad_x     = 8
+    pill_w    = (col_w - (len(pills)-1)*pill_gap) / len(pills)
 
     def fits(font_size, padding):
         maxw = max(canvas.stringWidth(p, BOLD_FONT, font_size) for p in pills)
-        return (maxw + 2 * padding) <= pill_width
+        return (maxw + 2*padding) <= pill_w
 
     while pill_font > 6 and not fits(pill_font, pad_x):
         pill_font -= 1
@@ -171,10 +153,10 @@ def draw_header(canvas, doc):
             pad_x -= 1
 
     start_x = perf_left
-    start_y = row1_field_y - field_height + 2
+    start_y = row1_field_y - field_h + 2
     canvas.setFont(BOLD_FONT, pill_font)
 
-    def draw_pill_fixed(x, y, text, selected, width):
+    def draw_pill(x, y, text, selected, width):
         if selected:
             canvas.setFillColor(PRIMARY_COLOR)
             canvas.roundRect(x, y, width, pill_h, 8, stroke=0, fill=1)
@@ -184,99 +166,85 @@ def draw_header(canvas, doc):
             canvas.setStrokeColor(PRIMARY_COLOR)
             canvas.roundRect(x, y, width, pill_h, 8, stroke=1, fill=1)
             canvas.setFillColor(PRIMARY_COLOR)
-        canvas.drawCentredString(x + width / 2, y + 4, text)
+        canvas.drawCentredString(x + width/2, y + 4, text)
 
     px = start_x
     for p in pills:
-        draw_pill_fixed(px, start_y, p, p == sel, pill_width)
-        px += pill_width + pill_gap
+        draw_pill(px, start_y, p, p == sel, pill_w)
+        px += pill_w + pill_gap
 
     # Linha 2
-    row2_label_y = row1_field_y - field_height - 12
+    row2_label_y = row1_field_y - field_h - 12
     row2_field_y = row2_label_y - 10
 
-    # Nome de assessor
-    canvas.setFillColor(label_color)
-    canvas.setFont(BOLD_FONT, 9)
+    # Assessor
+    canvas.setFillColor(label_color); canvas.setFont(BOLD_FONT, 9)
     canvas.drawString(left, row2_label_y, "Nome de assessor")
-
     canvas.setFillColor(field_bg)
-    canvas.roundRect(left, row2_field_y - field_height + 2, col_width, field_height, field_radius, stroke=0, fill=1)
-    canvas.setFillColor(PRIMARY_COLOR)
-    canvas.setFont(BOLD_FONT, 10)
-    canvas.drawString(left + 6, row2_field_y - field_height + 5, (NOME_ASSESSOR or "").upper())
+    canvas.roundRect(left, row2_field_y - field_h + 2, col_w, field_h, field_r, stroke=0, fill=1)
+    canvas.setFillColor(PRIMARY_COLOR); canvas.setFont(BOLD_FONT, 10)
+    canvas.drawString(left + 6, row2_field_y - field_h + 5, (NOME_ASSESSOR or "").upper())
 
     # Aporte
-    canvas.setFillColor(label_color)
-    canvas.setFont(BOLD_FONT, 9)
+    canvas.setFillColor(label_color); canvas.setFont(BOLD_FONT, 9)
     canvas.drawString(perf_left, row2_label_y, "Aporte")
-
     canvas.setFillColor(field_bg)
-    canvas.roundRect(perf_left, row2_field_y - field_height + 2, col_width, field_height, field_radius, stroke=0, fill=1)
-    canvas.setFillColor(PRIMARY_COLOR)
-    canvas.setFont(BASE_FONT, 10)
-    canvas.drawString(perf_left + 6, row2_field_y - field_height + 5, APORTE_TEXT or "Sem aporte")
+    canvas.roundRect(perf_left, row2_field_y - field_h + 2, col_w, field_h, field_r, stroke=0, fill=1)
+    canvas.setFillColor(PRIMARY_COLOR); canvas.setFont(BASE_FONT, 10)
+    canvas.drawString(perf_left + 6, row2_field_y - field_h + 5, APORTE_TEXT or "Sem aporte")
 
-    # Linha final do cabeçalho
-    bottom_boxes_y = row2_field_y - field_height + 2
-    footer_line_y = bottom_boxes_y - 6
-    canvas.setStrokeColor(PRIMARY_COLOR)
-    canvas.setLineWidth(0.6)
+    # Linha inferior do cabeçalho
+    base_boxes_y = row2_field_y - field_h + 2
+    footer_line_y = base_boxes_y - 6
+    canvas.setStrokeColor(PRIMARY_COLOR); canvas.setLineWidth(0.6)
     canvas.line(left, footer_line_y, right, footer_line_y)
 
     canvas.restoreState()
 
 def draw_footer(canvas, doc):
-    """Rodapé: logo no canto inferior esquerdo + linha horizontal"""
     canvas.saveState()
     page_width, _ = A4
-
-    left = doc.leftMargin
+    left  = doc.leftMargin
     right = page_width - doc.rightMargin
 
-    base_dir = os.path.dirname(__file__)
+    base_dir  = os.path.dirname(__file__)
     logo_path = os.path.join(base_dir, "c-com-fundo-branco.png")
     logo_w_target = 44
     try:
         img = ImageReader(logo_path)
         iw, ih = img.getSize()
-        scale = logo_w_target / float(iw)
+        scale  = logo_w_target / float(iw)
         logo_w = logo_w_target
         logo_h = ih * scale
-        x_img = left
-        y_img = 12
+        x_img, y_img = left, 12
         canvas.drawImage(img, x_img, y_img, width=logo_w, height=logo_h, mask='auto')
     except Exception:
-        logo_w = 0
-        logo_h = 0
-        x_img = left
-        y_img = 24
+        logo_w = 0; logo_h = 0
+        x_img, y_img = left, 24
 
-    y_line = y_img + (logo_h / 2 if logo_h else 10)
+    y_line  = y_img + (logo_h/2 if logo_h else 10)
     x_start = x_img + logo_w + 12
-    canvas.setStrokeColor(PRIMARY_COLOR)
-    canvas.setLineWidth(0.6)
+    canvas.setStrokeColor(PRIMARY_COLOR); canvas.setLineWidth(0.6)
     canvas.line(x_start, y_line, right, y_line)
-
     canvas.restoreState()
 
 # -------------------------
-# Geração do PDF
+# PDF
 # -------------------------
 def generate_pdf(
     dist_df: pd.DataFrame,
     modelo_df: pd.DataFrame,
-    resumo_df: pd.DataFrame,   # mantido para compatibilidade
+    resumo_df: pd.DataFrame,  # compat.
     sugestao: dict,
     ativos_df: pd.DataFrame,
     cliente_nome: str = "",
     nome_assessor: str = "",
 ) -> bytes:
-    # Normalizações
+
+    # --- Normalizações
     df_dist = dist_df.copy()
     if "valor" not in df_dist.columns and "valor_atual" in df_dist.columns:
         df_dist = df_dist.rename(columns={"valor_atual": "valor"})
-
     if "Percentual" not in df_dist.columns:
         total_val = pd.to_numeric(df_dist["valor"], errors="coerce").fillna(0.0).sum()
         df_dist["Percentual"] = (
@@ -291,23 +259,23 @@ def generate_pdf(
         else:
             raise ValueError("modelo_df precisa conter a coluna 'Percentual Ideal'.")
 
-    # Estado global p/ header
+    # --- Estado para header
     global patrimonio_total, CLIENTE_NOME, NOME_ASSESSOR, DATA_HOJE_STR, PERFIL_RISCO, APORTE_TEXT
     CLIENTE_NOME = cliente_nome or ""
     NOME_ASSESSOR = nome_assessor or ""
     patrimonio_total = pd.to_numeric(df_dist["valor"], errors="coerce").fillna(0.0).sum()
     DATA_HOJE_STR = _data_hoje_br()
-    PERFIL_RISCO = _inferir_perfil(sugestao)
-    APORTE_TEXT = (sugestao or {}).get("aporte_text", "Sem aporte") or "Sem aporte"
+    PERFIL_RISCO  = _inferir_perfil(sugestao)
+    APORTE_TEXT   = (sugestao or {}).get("aporte_text", "Sem aporte") or "Sem aporte"
 
     styles = getSampleStyleSheet()
     for s in styles.byName.values():
         s.textColor = PRIMARY_COLOR
-        s.fontName = BASE_FONT
+        s.fontName  = BASE_FONT
 
     elems = []
 
-    # ===== Gráficos donut =====
+    # --- Gráficos donut
     def make_doughnut_atual(df, percent_col):
         sorted_df = df.sort_values(by=percent_col, ascending=False).reset_index(drop=True)
         labels = sorted_df["Classificação"].tolist()
@@ -321,8 +289,7 @@ def generate_pdf(
             sizes, labels=None, startangle=90, counterclock=False, colors=colors_list,
             wedgeprops={'width': 0.30, 'edgecolor': 'white'}
         )
-        ax.axis('equal')
-        plt.tight_layout()
+        ax.axis('equal'); plt.tight_layout()
         fig.savefig(buf, format='PNG', dpi=150, bbox_inches='tight')
         plt.close(fig); buf.seek(0)
         return buf, color_map
@@ -347,17 +314,15 @@ def generate_pdf(
             sizes, labels=None, startangle=90, counterclock=False, colors=colors_list,
             wedgeprops={'width': 0.30, 'edgecolor': 'white'}
         )
-        ax.axis('equal')
-        plt.tight_layout()
+        ax.axis('equal'); plt.tight_layout()
         fig.savefig(buf, format='PNG', dpi=150, bbox_inches='tight')
         plt.close(fig); buf.seek(0)
         return buf
 
-    # ===== Documento (BaseDocTemplate com Frame SEM padding) =====
+    # --- Documento sem paddings
     buffer_relatorio = io.BytesIO()
     doc = BaseDocTemplate(
-        buffer_relatorio,
-        pagesize=A4,
+        buffer_relatorio, pagesize=A4,
         leftMargin=36, rightMargin=36, topMargin=202, bottomMargin=70
     )
     frame = Frame(doc.leftMargin, doc.bottomMargin, doc.width, doc.height,
@@ -374,7 +339,7 @@ def generate_pdf(
     buf1, color_map = make_doughnut_atual(df_dist, "Percentual")
     buf2 = make_doughnut_modelo(df_modelo, "Percentual Ideal", color_map)
 
-    # Tabela comparativa
+    # --- Tabela comparativa central (barras)
     temp_df = pd.DataFrame({
         "Classificação": list(dict.fromkeys(list(df_dist["Classificação"]) + list(df_modelo["Classificação"])))
     })
@@ -386,8 +351,8 @@ def generate_pdf(
         val = float(value) if pd.notna(value) else 0.0
         percent = f"{val:.1f}".replace(".", ",") + "%"
         b = InnerTable([[" "]], colWidths=4, rowHeights=12)
-        b.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,-1), colors.HexColor(color) if isinstance(color, str) else color),
-                               ("BOX", (0,0), (-1,-1), 0, colors.white)]))
+        b.setStyle(TableStyle([("BACKGROUND",(0,0),(-1,-1), colors.HexColor(color) if isinstance(color,str) else color),
+                               ("BOX",(0,0),(-1,-1),0, colors.white)]))
         small = ParagraphStyle("Small", parent=styles["Normal"], fontName=BASE_FONT, fontSize=8, textColor=PRIMARY_COLOR,
                                alignment=TA_RIGHT if align=="right" else TA_LEFT)
         if align == "left":
@@ -400,25 +365,23 @@ def generate_pdf(
                                 ("LEFTPADDING",(0,0),(-1,-1),0), ("RIGHTPADDING",(0,0),(-1,-1),0)])
 
     rows = []
-    small_center = ParagraphStyle("SmallCenter", parent=styles["Normal"], alignment=TA_CENTER, fontName=BASE_FONT, fontSize=7,
-                                  wordWrap='CJK', keepAll=True, textColor=PRIMARY_COLOR)
+    small_center = ParagraphStyle("SmallCenter", parent=styles["Normal"], alignment=TA_CENTER,
+                                  fontName=BASE_FONT, fontSize=7, wordWrap='CJK', keepAll=True, textColor=PRIMARY_COLOR)
     for _, r in temp_df.iterrows():
         color = color_map.get(r["Classificação"], "#000000")
-        rows.append([bar(color, "left", r["Atual"]), Paragraph(str(r["Classificação"]), small_center), bar(color, "right", r["Modelo"])])
+        rows.append([bar(color,"left",r["Atual"]), Paragraph(str(r["Classificação"]), small_center), bar(color,"right",r["Modelo"])])
 
-    comp_tbl = Table([["Atual (%)", "Classificação", "Proposta (%)"]] + rows, colWidths=[63, 84, 63], hAlign='CENTER')
+    comp_tbl = Table([["Atual (%)","Classificação","Proposta (%)"]] + rows, colWidths=[63,84,63], hAlign='CENTER')
     comp_tbl.setStyle(TableStyle([
-        ('BACKGROUND', (0,0), (-1,-1), colors.whitesmoke),
-        ('ALIGN', (0,0), (-1,-1), 'CENTER'),
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('LEFTPADDING', (0,1), (0,-1), 0),
-        ('RIGHTPADDING', (-1,1), (-1,-1), 0),
-        ('TOPPADDING', (0,0), (-1,-1), 2),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 2),
-        ('TEXTCOLOR', (0,0), (-1,0), colors.whitesmoke),
-        ('BACKGROUND', (0,0), (-1,0), colors.gray),
-        ('TEXTCOLOR', (0,1), (-1,-1), PRIMARY_COLOR),
-        ('GRID', (0,0), (-1,-1), 0.5, colors.black),
+        ('BACKGROUND',(0,0),(-1,-1),colors.whitesmoke),
+        ('ALIGN',(0,0),(-1,-1),'CENTER'),
+        ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+        ('LEFTPADDING',(0,1),(0,-1),0), ('RIGHTPADDING',(-1,1),(-1,-1),0),
+        ('TOPPADDING',(0,0),(-1,-1),2), ('BOTTOMPADDING',(0,0),(-1,-1),2),
+        ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
+        ('BACKGROUND',(0,0),(-1,0),colors.gray),
+        ('TEXTCOLOR',(0,1),(-1,-1),PRIMARY_COLOR),
+        ('GRID',(0,0),(-1,-1),0.5,colors.black),
     ]))
 
     def titulo_com_traco(texto):
@@ -426,24 +389,24 @@ def generate_pdf(
                              fontName=BOLD_FONT, fontSize=9, spaceAfter=2, textColor=PRIMARY_COLOR, textTransform='uppercase')
         return Table([[Paragraph(texto, sub)],
                       [Table([[""]], colWidths="100%", style=[("LINEBELOW",(0,0),(-1,-1),0, PRIMARY_COLOR)])]],
-                     hAlign='CENTER',
-                     style=[("BOTTOMPADDING",(0,0),(-1,-1),0), ("TOPPADDING",(0,1),(-1,1),-12)])
+                     hAlign='CENTER', style=[("BOTTOMPADDING",(0,0),(-1,-1),0), ("TOPPADDING",(0,1),(-1,1),-12)])
 
-    grafico_atual    = Table([[titulo_com_traco("CARTEIRA ATUAL")],[Image(buf1, width=130, height=130)]],
+    grafico_atual    = Table([[titulo_com_traco("CARTEIRA ATUAL")],   [Image(buf1, width=130, height=130)]],
                              rowHeights=[19,None], hAlign='CENTER')
     grafico_sugerido = Table([[titulo_com_traco("CARTEIRA PROPOSTA")],[Image(buf2, width=130, height=130)]],
                              rowHeights=[19,None], hAlign='CENTER')
 
-    elems.append(Table([[grafico_atual, comp_tbl, grafico_sugerido]], colWidths=[155,230,155], hAlign='CENTER',
+    elems.append(Table([[grafico_atual, comp_tbl, grafico_sugerido]],
+                       colWidths=[155,230,155], hAlign='CENTER',
                        style=[('VALIGN',(0,0),(-1,-1),'TOP'), ('ALIGN',(0,0),(-1,-1),'CENTER')]))
     elems.append(Spacer(1, 30))
 
-    # ========== Tabelas "Carteira Atual" x "Proposta" ==========
+    # --- Tabelas lado a lado (mesma largura e alinhadas às margens)
     dist_fmt = df_dist.copy().sort_values(by="valor", ascending=False)
     dist_fmt["valor"] = pd.to_numeric(dist_fmt["valor"], errors="coerce").fillna(0.0)
     dist_fmt["Valor"] = dist_fmt["valor"].apply(_format_number_br)
     dist_fmt["% PL"]  = dist_fmt["Percentual"].apply(lambda x: _format_number_br(x) + "%")
-    dist_fmt = dist_fmt[["Classificação", "Valor", "% PL"]]
+    dist_fmt = dist_fmt[["Classificação","Valor","% PL"]]
 
     modelo_fmt = df_modelo.copy()
     if "Valor Ideal (R$)" in modelo_fmt.columns:
@@ -453,16 +416,14 @@ def generate_pdf(
     modelo_fmt = modelo_fmt.sort_values(by="valor", ascending=False)
     modelo_fmt["Valor"] = modelo_fmt["valor"].apply(_format_number_br)
     modelo_fmt["% PL"]  = modelo_fmt["Percentual Ideal"].apply(lambda x: _format_number_br(x) + "%")
-    modelo_fmt = modelo_fmt[["Classificação", "Valor", "% PL"]]
+    modelo_fmt = modelo_fmt[["Classificação","Valor","% PL"]]
 
     GAP = 20
-    half_width = (doc.width - GAP) / 2
-    colspec = [half_width * 0.55, half_width * 0.25, half_width * 0.20]
+    half = (doc.width - GAP) / 2
+    colspec = [half*0.55, half*0.25, half*0.20]
 
-    tbl1 = Table([dist_fmt.columns.tolist()] + dist_fmt.values.tolist(),
-                 colWidths=colspec, hAlign='LEFT')
-    tbl2 = Table([modelo_fmt.columns.tolist()] + modelo_fmt.values.tolist(),
-                 colWidths=colspec, hAlign='LEFT')
+    tbl1 = Table([dist_fmt.columns.tolist()] + dist_fmt.values.tolist(), colWidths=colspec, hAlign='LEFT')
+    tbl2 = Table([modelo_fmt.columns.tolist()] + modelo_fmt.values.tolist(), colWidths=colspec, hAlign='LEFT')
 
     styl = TableStyle([
         ('BACKGROUND',(0,0),(-1,0),colors.gray),
@@ -485,36 +446,29 @@ def generate_pdf(
     title_center = ParagraphStyle(name="CenteredTitle", parent=styles["Heading2"],
                                   alignment=TA_CENTER, textColor=PRIMARY_COLOR, fontName=BOLD_FONT)
 
-    elems.append(
-        Table(
-            [[Paragraph("Carteira Atual", title_center), "", Paragraph("Carteira Proposta", title_center)]],
-            colWidths=[half_width, GAP, half_width], hAlign='LEFT',
-            style=[('LEFTPADDING',(0,0),(-1,-1),0), ('RIGHTPADDING',(0,0),(-1,-1),0),
-                   ('TOPPADDING',(0,0),(-1,-1),0), ('BOTTOMPADDING',(0,0),(-1,-1),0)]
-        )
-    )
-    elems.append(
-        Table(
-            [[tbl1, "", tbl2]],
-            colWidths=[half_width, GAP, half_width], hAlign='LEFT',
-            style=[('VALIGN',(0,0),(-1,-1),'TOP'),
-                   ('LEFTPADDING',(0,0),(-1,-1),0), ('RIGHTPADDING',(0,0),(-1,-1),0),
-                   ('TOPPADDING',(0,0),(-1,-1),0), ('BOTTOMPADDING',(0,0),(-1,-1),0)]
-        )
-    )
+    elems.append(Table([[Paragraph("Carteira Atual", title_center), "", Paragraph("Carteira Proposta", title_center)]],
+                       colWidths=[half, GAP, half], hAlign='LEFT',
+                       style=[('LEFTPADDING',(0,0),(-1,-1),0), ('RIGHTPADDING',(0,0),(-1,-1),0),
+                              ('TOPPADDING',(0,0),(-1,-1),0), ('BOTTOMPADDING',(0,0),(-1,-1),0)]))
+    elems.append(Table([[tbl1, "", tbl2]],
+                       colWidths=[half, GAP, half], hAlign='LEFT',
+                       style=[('VALIGN',(0,0),(-1,-1),'TOP'),
+                              ('LEFTPADDING',(0,0),(-1,-1),0), ('RIGHTPADDING',(0,0),(-1,-1),0),
+                              ('TOPPADDING',(0,0),(-1,-1),0), ('BOTTOMPADDING',(0,0),(-1,-1),0)]))
 
-    # ===== NOVO: Gráfico de Liquidez da carteira proposta (R$) =====
-    def _extract_days(liq: str):
+    # ============================================================
+    # Gráfico: Liquidez da carteira proposta (R$)
+    # ============================================================
+    def _extract_days(liq):
         m = re.search(r"D\+(\d+)", str(liq))
         return int(m.group(1)) if m else None
 
     ativos_local = ativos_df.copy()
     ativos_local["days"] = ativos_local["Liquidez"].apply(_extract_days)
-    def _classify_faixa(row):
-        d = row["days"]
-        liq = str(row["Liquidez"]).lower()
-        if d is None:
-            return "D+0"
+
+    def _classify(row):
+        d = row["days"]; liq = str(row["Liquidez"]).lower()
+        if d is None: return "D+0"
         if d > 180: return "Acima de D+180"
         if d > 60:  return "Até D+180"
         if d > 15:  return "Até D+60"
@@ -523,78 +477,69 @@ def generate_pdf(
         if d == 0 and "à mercado" in liq: return "D+0 (à mercado)"
         return "D+0"
 
-    ativos_local["Faixa"] = ativos_local.apply(_classify_faixa, axis=1)
+    ativos_local["Faixa"] = ativos_local.apply(_classify, axis=1)
 
-    # usamos 'Novo Valor' para a PROPOSTA; se não existir, cai para 'valor_atual'
-    valor_col = "Novo Valor" if "Novo Valor" in ativos_local.columns else "valor_atual"   # alteração realizada aqui
-
-    ordem = [
-        "D+0 (à mercado)", "D+0", "Até D+5", "Até D+15", "Até D+60", "Até D+180", "Acima de D+180"
-    ]
+    valor_col = "Novo Valor" if "Novo Valor" in ativos_local.columns else "valor_atual"
+    ordem = ["D+0 (à mercado)","D+0","Até D+5","Até D+15","Até D+60","Até D+180","Acima de D+180"]
     liq_faixas = (
-        ativos_local
-        .assign(valor=pd.to_numeric(ativos_local[valor_col], errors="coerce").fillna(0.0))
-        .groupby("Faixa")["valor"].sum()
-        .reindex(ordem, fill_value=0.0)    # garante todas as faixas  # alteração realizada aqui
-        .reset_index()
+        ativos_local.assign(valor=pd.to_numeric(ativos_local[valor_col], errors="coerce").fillna(0.0))
+                   .groupby("Faixa")["valor"].sum()
+                   .reindex(ordem, fill_value=0.0)
+                   .reset_index()
     )
 
-    # Matplotlib barh (sem eixo X, sem rótulos do eixo X)
+    # ----- ESTILO + ORDEM INVERTIDA (Acima de D+180 no topo) -----
     buf_liq = io.BytesIO()
-    fig, ax = plt.subplots(figsize=(7, 2.6))   # proporção horizontal  # alteração realizada aqui
-    y_labels = ordem[::-1]                     # mostra "Acima de D+180" no topo (como no exemplo)
-    y_pos = range(len(y_labels))
+    fig, ax = plt.subplots(figsize=(7.5, 3.2))  # um pouco mais alto  # alteração realizada aqui
+    y_labels = ["Acima de D+180","Até D+180","Até D+60","Até D+15","Até D+5","D+0","D+0 (à mercado)"]  # alteração realizada aqui
+    y_pos = list(range(len(y_labels)))
     valores = [liq_faixas.set_index("Faixa").loc[l, "valor"] for l in y_labels]
 
-    bars = ax.barh(list(y_pos), valores)
-    ax.set_yticks(list(y_pos), labels=y_labels)
-    ax.set_xlabel("")           # sem nome do eixo X
-    ax.set_xticks([])           # sem valores no eixo X
+    bars = ax.barh(y_pos, valores, height=0.58)  # barras mais “cheias”  # alteração realizada aqui
+    ax.set_yticks(y_pos, labels=y_labels)
+    ax.set_xlabel("")            # sem nome do eixo X
+    ax.set_xticks([])            # sem valores do eixo X
     ax.tick_params(axis='x', length=0)
-    ax.spines['bottom'].set_visible(False)
-    ax.spines['top'].set_visible(False)
-    ax.spines['right'].set_visible(False)
 
-    # rótulos numéricos à direita das barras (formato BR)
+    # tirar todos os spines para ficar “limpo” como no Plotly
+    for side in ["bottom","top","right","left"]:
+        ax.spines[side].set_visible(False)      # alteração realizada aqui
+
+    # rótulo numérico fora da barra, no padrão BR
     max_v = max(valores) if valores else 0.0
-    ax.set_xlim(0, max_v * 1.15 if max_v > 0 else 1)
+    ax.set_xlim(0, max_v*1.15 if max_v > 0 else 1)
     for rect, val in zip(bars, valores):
         txt = _format_number_br(val)
-        ax.text(rect.get_width() + (max_v * 0.01 if max_v else 0.02),
-                rect.get_y() + rect.get_height()/2,
-                txt, va='center', ha='left', fontsize=9)
+        ax.text(rect.get_width() + (max_v*0.012 if max_v else 0.02),
+                rect.get_y() + rect.get_height()/2, txt,
+                va='center', ha='left', fontsize=9)
 
-    ax.set_ylabel("Faixa")
-
-    plt.tight_layout()
+    ax.set_ylabel("Faixa")  # mantém como no exemplo base
+    plt.tight_layout(pad=1.0)
     fig.savefig(buf_liq, format='PNG', dpi=150, bbox_inches='tight')
     plt.close(fig); buf_liq.seek(0)
 
-    # título + imagem do gráfico
     elems.append(Spacer(1, 22))
     elems.append(Paragraph("Liquidez da carteira proposta (R$)",
                            ParagraphStyle(name="H2_LIQ", parent=styles["Heading2"],
                                           fontName=BOLD_FONT, alignment=TA_CENTER)))
     elems.append(Spacer(1, 6))
-    elems.append(Image(buf_liq, width=doc.width, height=170))              # alteração realizada aqui
+    elems.append(Image(buf_liq, width=doc.width, height=170))
 
-    # ===== Página seguinte — Sugestão de Carteira (detalhada)
+    # --- Página seguinte — Sugestão de Carteira (detalhada)
     elems.append(PageBreak())
     elems.append(Paragraph("Sugestão de Carteira",
                            ParagraphStyle(name="H2", parent=styles["Heading2"], fontName=BOLD_FONT)))
     elems.append(Spacer(1, 12))
 
-    data = [["Ativo", "Capital Alocado", "% PL"]]
-    classification_rows = []
-    row_idx = 1
+    data = [["Ativo","Capital Alocado","% PL"]]
+    classification_rows = []; row_idx = 1
     total_sug = pd.to_numeric(ativos_df["Novo Valor"], errors="coerce").fillna(0.0).sum()
 
-    class_sums = (
-        ativos_df.assign(_novo=pd.to_numeric(ativos_df["Novo Valor"], errors="coerce").fillna(0.0))
-                 .groupby("Classificação")["_novo"].sum().sort_values(ascending=False)
-    )
+    class_sums = (ativos_df.assign(_novo=pd.to_numeric(ativos_df["Novo Valor"], errors="coerce").fillna(0.0))
+                           .groupby("Classificação")["_novo"].sum().sort_values(ascending=False))
     for categoria, soma_val in class_sums.items():
-        soma_pct = (soma_val / total_sug * 100) if total_sug else 0.0
+        soma_pct = (soma_val/total_sug*100) if total_sug else 0.0
         data.append([str(categoria).upper(), _format_number_br(soma_val), f"{soma_pct:.2f}".replace(".", ",") + "%"])
         classification_rows.append(row_idx); row_idx += 1
 
@@ -604,7 +549,8 @@ def generate_pdf(
         for _, r in grp.iterrows():
             nome_ativo = unicodedata.normalize("NFKC", str(r.get("estrategia",""))).replace("\uFFFD","").replace("\xa0"," ").strip()
             nv = float(r.get("Novo Valor", 0.0)) if pd.notna(r.get("Novo Valor", 0.0)) else 0.0
-            data.append([nome_ativo, _format_number_br(nv), (f"{(nv/total_sug*100):.2f}".replace(".", ",") + "%") if total_sug else "0,00%"])
+            data.append([nome_ativo, _format_number_br(nv),
+                        (f"{(nv/total_sug*100):.2f}".replace(".", ",") + "%") if total_sug else "0,00%"])
             row_idx += 1
 
     tbl = Table(data, colWidths=[doc.width*0.6, doc.width*0.2, doc.width*0.2], hAlign="LEFT", repeatRows=1)
@@ -629,16 +575,14 @@ def generate_pdf(
     tbl.setStyle(style)
     elems.append(tbl)
 
-    # Build do relatório
+    # Build
     doc.build(elems)
 
-    buffer_relatorio.seek(0)
-
     # Concatenação final
-    base_dir = os.path.dirname(__file__)
-    capa_path    = os.path.join(base_dir, "capa.pdf")
-    contra_path  = os.path.join(base_dir, "contra_capa.pdf")
-    ultima_path  = os.path.join(base_dir, "ultima_pagina.pdf")
+    base_dir  = os.path.dirname(__file__)
+    capa_path = os.path.join(base_dir, "capa.pdf")
+    contra_path = os.path.join(base_dir, "contra_capa.pdf")
+    ultima_path = os.path.join(base_dir, "ultima_pagina.pdf")
 
     writer = PdfWriter()
     for p in PdfReader(capa_path).pages: writer.add_page(p)
@@ -646,7 +590,6 @@ def generate_pdf(
     for p in PdfReader(buffer_relatorio).pages: writer.add_page(p)
     for p in PdfReader(ultima_path).pages: writer.add_page(p)
 
-    output_final = io.BytesIO()
-    writer.write(output_final)
-    output_final.seek(0)
-    return output_final.read()
+    out = io.BytesIO()
+    writer.write(out); out.seek(0)
+    return out.read()
