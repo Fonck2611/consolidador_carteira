@@ -410,7 +410,7 @@ def generate_pdf(
         color = color_map.get(r["Classificação"], "#000000")
         rows.append([bar(color, "left", r["Atual"]), Paragraph(str(r["Classificação"]), small_center), bar(color, "right", r["Modelo"])])
 
-    comp_tbl = Table([["Atual (%)", "Classificação", "Proposta (%)"]] + rows, colWidths=[55, 90, 55], hAlign='CENTER')
+    comp_tbl = Table([["Atual (%)", "Classificação", "Proposta (%)"]] + rows, colWidths=[60, 90, 60], hAlign='CENTER')
     comp_tbl.setStyle(TableStyle([
         ('BACKGROUND', (0,0), (-1,-1), colors.whitesmoke),
         ('ALIGN', (0,0), (-1,-1), 'CENTER'),
@@ -557,5 +557,6 @@ def generate_pdf(
     writer.write(output_final)
     output_final.seek(0)
     return output_final.read()
+
 
 
