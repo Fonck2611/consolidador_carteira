@@ -294,11 +294,6 @@ def generate_pdf(
         s.textColor = PRIMARY_COLOR
         s.fontName  = BASE_FONT
 
-    # ••• Estilo de títulos reutilizável
-    title_center = ParagraphStyle(name="CenteredTitle", parent=styles["Heading2"],
-                                  alignment=TA_CENTER, textColor=PRIMARY_COLOR,
-                                  fontName=BOLD_FONT)
-
     elems = []
 
     # ===== Gráficos donut
@@ -478,6 +473,9 @@ def generate_pdf(
     ])
     tbl1.setStyle(styl_common); tbl2.setStyle(styl_common)
 
+    title_center = ParagraphStyle(name="CenteredTitle", parent=styles["Heading2"], alignment=TA_CENTER,
+                                  textColor=PRIMARY_COLOR, fontName=BOLD_FONT)
+
     elems.append(Table([[Paragraph("Carteira Atual", title_center), "", Paragraph("Carteira Proposta", title_center)]],
                        colWidths=[half, GAP, half], hAlign='LEFT',
                        style=[('LEFTPADDING',(0,0),(-1,-1),0), ('RIGHTPADDING',(0,0),(-1,-1),0),
@@ -525,7 +523,7 @@ def generate_pdf(
 
     bars = ax.barh(y_pos, valores, height=0.70)
     ax.set_yticks(y_pos, labels=y_labels)
-    ax.invert_yaxis()  # garante o "Acima de D+180" no topo
+    ax.invert_yaxis()  # primeiro item no topo
     ax.tick_params(axis='y', labelsize=8, colors=cinza_txt, length=0)
     ax.set_ylabel("Faixa", fontsize=9, color=cinza_txt)
     ax.set_xlabel(""); ax.set_xticks([]); ax.tick_params(axis='x', length=0, colors=cinza_txt)
@@ -550,82 +548,134 @@ def generate_pdf(
     elems.append(Spacer(1, 6))
     elems.append(Image(buf_liq, width=doc.width, height=182))
 
-    # ======= NOVA PÁGINA: Diferenças / Alocados / Resgatados =======  # alteração realizada aqui
-    elems.append(PageBreak())  # começa a nova página logo após os gráficos
+    # =================================================================
+    # NOVA PÁGINA: Diferenças / Ativos Alocados / Ativos Resgatados
+    # =================================================================
+    elems.append(PageBreak())
 
-    # -- Diferenças entre Atual e Sugerida --
+    # helpers de cabeçalho/célula com quebra
+    hdr9 = ParagraphStyle("Hdr9", parent=styles["Normal"], fontName=BOLD_FONT,
+                          fontSize=9, alignment=TA_CENTER, textColor=colors.whitesmoke,
+                          wordWrap="CJK")
+    cell_wrap = ParagraphStyle("CellWrap", parent=styles["Normal"], fontName=BASE_FONT,
+                               fontSize=8, textColor=PRIMARY_COLOR, wordWrap="CJK")
+
+    # 1) Diferenças entre Atual e Sugerida (ordenado por Ajuste desc)
     all_classes = set(df_dist["Classificação"]).union(set(df_modelo["Classificação"]))
-    resumo_rows = []
-    for cls in sorted(all_classes, key=lambda x: str(x)):
+    linhas = []
+    for cls in all_classes:
         pa = float(df_dist.loc[df_dist["Classificação"] == cls, "Percentual"].sum())
         ps = float(df_modelo.loc[df_modelo["Classificação"] == cls, "Percentual Ideal"].sum())
         adj = round(ps - pa, 2)
-        resumo_rows.append([cls,
-                            _format_number_br(pa) + "%",                 # Atual (%)
-                            _format_number_br(ps) + "%",                 # Sugerida (%)
-                            _format_number_br(adj) + "%",                # Ajuste (%)
-                            "Aumentar" if adj > 0 else ("Reduzir" if adj < 0 else "Inalterado")])
+        linhas.append({
+            "Classificação": cls,
+            "Atual (%)": pa,
+            "Sugerida (%)": ps,
+            "AjusteNum": adj,
+            "Ajuste (%)": adj,
+            "Ação": "Aumentar" if adj > 0 else ("Reduzir" if adj < 0 else "Inalterado")
+        })
 
-    dif_cols = ["Classificação","Atual (%)","Sugerida (%)","Ajuste (%)","Ação"]
-    dif_tbl = Table([dif_cols] + resumo_rows,
-                    colWidths=[doc.width*0.34, doc.width*0.16, doc.width*0.16, doc.width*0.16, doc.width*0.18],
-                    hAlign='LEFT')
-    dif_tbl.setStyle(styl_common)  # mesmo estilo das tabelas principais
-    elems.append(Paragraph("Diferenças entre Atual e Sugerida", title_center))  # título
+    dif_df = pd.DataFrame(linhas).sort_values("AjusteNum", ascending=False).reset_index(drop=True)
+    dif_df["Atual (%)"]    = dif_df["Atual (%)"].apply(lambda v: _format_number_br(v) + "%")
+    dif_df["Sugerida (%)"] = dif_df["Sugerida (%)"].apply(lambda v: _format_number_br(v) + "%")
+    dif_df["Ajuste (%)"]   = dif_df["Ajuste (%)"].apply(lambda v: _format_number_br(v) + "%")
+
+    dif_cols = ["Classificação", "Atual (%)", "Sugerida (%)", "Ajuste (%)", "Ação"]
+    dif_colwidths = [doc.width*0.34, doc.width*0.16, doc.width*0.16, doc.width*0.16, doc.width*0.18]
+
+    dif_tbl = Table([dif_cols] + dif_df[dif_cols].values.tolist(),
+                    colWidths=dif_colwidths, hAlign='LEFT')
+    dif_tbl.setStyle(styl_common)
+
+    elems.append(Paragraph("Diferenças entre Atual e Sugerida", title_center))
     elems.append(dif_tbl)
     elems.append(Spacer(1, 18))
 
-    # -- Ativos Alocados --
+    # 2) Ativos Alocados
     if "Valor Realocado" in ativos_df.columns:
         alocados = ativos_df.copy()
         for c in ["valor_atual", "Novo Valor", "Valor Realocado"]:
             if c in alocados.columns:
                 alocados[c] = _to_float_br(alocados[c])
-        alocados = alocados[alocados["Valor Realocado"] > 0].copy()
-        alocados = alocados.rename(columns={"estrategia": "Ativo"})
+        alocados = alocados[alocados["Valor Realocado"] > 0].rename(columns={"estrategia": "Ativo"})
+
+        elems.append(Paragraph("Ativos Alocados", title_center))
         if not alocados.empty:
             alocados["Valor Atual (R$)"]     = alocados["valor_atual"].apply(_format_number_br)
             alocados["Novo Valor (R$)"]      = alocados["Novo Valor"].apply(_format_number_br)
             alocados["Valor Realocado (R$)"] = alocados["Valor Realocado"].apply(_format_number_br)
-            cols_a = ["Classificação","Ativo","Valor Atual (R$)","Valor Realocado (R$)","Novo Valor (R$)"]
-            alocados_tbl = Table([cols_a] + alocados[cols_a].values.tolist(),
-                                 colWidths=[doc.width*0.18, doc.width*0.52, doc.width*0.10, doc.width*0.10, doc.width*0.10],
-                                 hAlign='LEFT')
-            alocados_tbl.setStyle(styl_common)
-            elems.append(Paragraph("Ativos Alocados", title_center))
-            elems.append(alocados_tbl)
-            elems.append(Spacer(1, 18))
-        else:
-            elems.append(Paragraph("Ativos Alocados", title_center))
-            elems.append(Paragraph("_Nenhum ativo alocado._", styles["Italic"]))
-            elems.append(Spacer(1, 18))
 
-        # -- Ativos Resgatados --
+            cols_a = ["Classificação", "Ativo", "Valor Atual (R$)", "Valor Realocado (R$)", "Novo Valor (R$)"]
+            # 18% | 46% | 12% | 12% | 12%
+            w_a = [doc.width*0.18, doc.width*0.46, doc.width*0.12, doc.width*0.12, doc.width*0.12]
+
+            header_a = [Paragraph("Classificação", hdr9),
+                        Paragraph("Ativo", hdr9),
+                        Paragraph("Valor Atual (R$)", hdr9),
+                        Paragraph("Valor Realocado (R$)", hdr9),
+                        Paragraph("Novo Valor (R$)", hdr9)]
+
+            data_a = [header_a]
+            for _, r in alocados[cols_a].iterrows():
+                data_a.append([
+                    r["Classificação"],
+                    Paragraph(str(r["Ativo"]), cell_wrap),
+                    r["Valor Atual (R$)"],
+                    r["Valor Realocado (R$)"],
+                    r["Novo Valor (R$)"],
+                ])
+
+            alocados_tbl = Table(data_a, colWidths=w_a, hAlign='LEFT')
+            alocados_tbl.setStyle(styl_common)
+            alocados_tbl.setStyle(TableStyle([("FONTSIZE",(0,0),(-1,0),9)]))
+            elems.append(alocados_tbl)
+        else:
+            elems.append(Paragraph("_Nenhum ativo alocado._", styles["Italic"]))
+        elems.append(Spacer(1, 18))
+
+        # 3) Ativos Resgatados
         resgatados = ativos_df.copy()
         for c in ["valor_atual", "Novo Valor", "Valor Realocado"]:
             if c in resgatados.columns:
                 resgatados[c] = _to_float_br(resgatados[c])
-        resgatados = resgatados[resgatados["Valor Realocado"] < 0].copy()
-        resgatados = resgatados.rename(columns={"estrategia": "Ativo"})
+        resgatados = resgatados[resgatados["Valor Realocado"] < 0].rename(columns={"estrategia": "Ativo"})
+
+        elems.append(Paragraph("Ativos Resgatados", title_center))
         if not resgatados.empty:
             resgatados["Valor Atual (R$)"]     = resgatados["valor_atual"].apply(_format_number_br)
             resgatados["Novo Valor (R$)"]      = resgatados["Novo Valor"].apply(_format_number_br)
             resgatados["Valor Realocado (R$)"] = resgatados["Valor Realocado"].apply(_format_number_br)
-            cols_r = ["Classificação","Ativo","Valor Atual (R$)","Valor Realocado (R$)","Novo Valor (R$)"]
-            resgatados_tbl = Table([cols_r] + resgatados[cols_r].values.tolist(),
-                                   colWidths=[doc.width*0.18, doc.width*0.52, doc.width*0.10, doc.width*0.10, doc.width*0.10],
-                                   hAlign='LEFT')
+
+            cols_r = ["Classificação", "Ativo", "Valor Atual (R$)", "Valor Realocado (R$)", "Novo Valor (R$)"]
+            w_r = [doc.width*0.18, doc.width*0.46, doc.width*0.12, doc.width*0.12, doc.width*0.12]
+
+            header_r = [Paragraph("Classificação", hdr9),
+                        Paragraph("Ativo", hdr9),
+                        Paragraph("Valor Atual (R$)", hdr9),
+                        Paragraph("Valor Realocado (R$)", hdr9),
+                        Paragraph("Novo Valor (R$)", hdr9)]
+
+            data_r = [header_r]
+            for _, r in resgatados[cols_r].iterrows():
+                data_r.append([
+                    r["Classificação"],
+                    Paragraph(str(r["Ativo"]), cell_wrap),
+                    r["Valor Atual (R$)"],
+                    r["Valor Realocado (R$)"],
+                    r["Novo Valor (R$)"],
+                ])
+
+            resgatados_tbl = Table(data_r, colWidths=w_r, hAlign='LEFT')
             resgatados_tbl.setStyle(styl_common)
-            elems.append(Paragraph("Ativos Resgatados", title_center))
+            resgatados_tbl.setStyle(TableStyle([("FONTSIZE",(0,0),(-1,0),9)]))
             elems.append(resgatados_tbl)
-            elems.append(Spacer(1, 6))
         else:
-            elems.append(Paragraph("Ativos Resgatados", title_center))
             elems.append(Paragraph("_Nenhum ativo resgatado._", styles["Italic"]))
-            elems.append(Spacer(1, 6))
+        elems.append(Spacer(1, 6))
 
     # --- Página seguinte — Sugestão de Carteira (detalhada)
-    elems.append(PageBreak())  # esta página vem após a nova página  # alteração realizada aqui
+    elems.append(PageBreak())
     elems.append(Paragraph("Sugestão de Carteira",
                            ParagraphStyle(name="H2", parent=styles["Heading2"], fontName=BOLD_FONT)))
     elems.append(Spacer(1, 12))
