@@ -1,5 +1,8 @@
 # utils/geracao_pdf.py
-from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, PageBreak
+from reportlab.platypus import (
+    BaseDocTemplate, PageTemplate, Frame,  # alteração: usamos BaseDocTemplate
+    SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, PageBreak
+)
 from reportlab.platypus import Table as InnerTable
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
@@ -92,7 +95,7 @@ def draw_header(canvas, doc):
 
     left = doc.leftMargin
     right = page_width - doc.rightMargin
-    top_y = page_height - 36  # ↓ aproximado do topo (antes: 54)
+    top_y = page_height - 36
 
     # ====== Título e data (lado esquerdo) ======
     canvas.setFillColor(PRIMARY_COLOR)
@@ -112,7 +115,7 @@ def draw_header(canvas, doc):
         canvas.drawRightString(contact_x, contact_y - i * line_gap, line)
     after_contact_y = contact_y - (len(CONTACT_LINES) - 1) * line_gap
 
-    # ====== Linha divisória (próxima do bloco de contato)
+    # ====== Linha divisória ======
     line_y = min(top_y - 34, after_contact_y - 16)
     canvas.setStrokeColor(PRIMARY_COLOR)
     canvas.setLineWidth(0.6)
@@ -127,9 +130,9 @@ def draw_header(canvas, doc):
     col_gap = 20
     col_width = (right - left - col_gap) / 2
 
-    # Linha 1: Nome do cliente | Perfil de risco sugerido
+    # Linha 1
     row1_label_y = line_y - 16
-    row1_field_y = row1_label_y - 10    # ↓ reduzi o gap título → valor (antes: 14)
+    row1_field_y = row1_label_y - 10  # menor gap rótulo→valor
 
     # Nome do cliente
     canvas.setFillColor(label_color)
@@ -142,13 +145,12 @@ def draw_header(canvas, doc):
     canvas.setFont(BOLD_FONT, 10)
     canvas.drawString(left + 6, row1_field_y - field_height + 5, (CLIENTE_NOME or "").upper())
 
-    # Perfil de risco sugerido (label)
+    # Perfil de risco sugerido
     perf_left = left + col_width + col_gap
     canvas.setFillColor(label_color)
     canvas.setFont(BOLD_FONT, 9)
     canvas.drawString(perf_left, row1_label_y, "Perfil de risco sugerido")
 
-    # ---- Pílulas ocupando 100% da largura (sem caixa de fundo) ----
     pills = ["CONSERVADORA", "MODERADA", "SOFISTICADA", "PERSONALIZADA"]
     sel = (PERFIL_RISCO or "PERSONALIZADA").upper()
     pill_h = field_height
@@ -188,9 +190,9 @@ def draw_header(canvas, doc):
         draw_pill_fixed(px, start_y, p, p == sel, pill_width)
         px += pill_width + pill_gap
 
-    # Linha 2: Nome de assessor | Aporte
+    # Linha 2
     row2_label_y = row1_field_y - field_height - 12
-    row2_field_y = row2_label_y - 10    # ↓ reduzi o gap título → valor (antes: 14)
+    row2_field_y = row2_label_y - 10
 
     # Nome de assessor
     canvas.setFillColor(label_color)
@@ -214,7 +216,7 @@ def draw_header(canvas, doc):
     canvas.setFont(BASE_FONT, 10)
     canvas.drawString(perf_left + 6, row2_field_y - field_height + 5, APORTE_TEXT or "Sem aporte")
 
-    # ====== Linha final do cabeçalho (abaixo das caixas) ======
+    # Linha final do cabeçalho
     bottom_boxes_y = row2_field_y - field_height + 2
     footer_line_y = bottom_boxes_y - 6
     canvas.setStrokeColor(PRIMARY_COLOR)
@@ -224,14 +226,13 @@ def draw_header(canvas, doc):
     canvas.restoreState()
 
 def draw_footer(canvas, doc):
-    """Rodapé: logo no canto inferior esquerdo + linha horizontal passando ao lado do logo"""
+    """Rodapé: logo no canto inferior esquerdo + linha horizontal"""
     canvas.saveState()
     page_width, _ = A4
 
     left = doc.leftMargin
     right = page_width - doc.rightMargin
 
-    # --- Logo inferior esquerdo ---
     base_dir = os.path.dirname(__file__)
     logo_path = os.path.join(base_dir, "c-com-fundo-branco.png")
     logo_w_target = 44
@@ -250,7 +251,6 @@ def draw_footer(canvas, doc):
         x_img = left
         y_img = 24
 
-    # --- Linha horizontal alinhada ao centro do logo ---
     y_line = y_img + (logo_h / 2 if logo_h else 10)
     x_start = x_img + logo_w + 12
     canvas.setStrokeColor(PRIMARY_COLOR)
@@ -271,13 +271,6 @@ def generate_pdf(
     cliente_nome: str = "",
     nome_assessor: str = "",
 ) -> bytes:
-    """
-    Gera o relatório e concatena:
-      [1] utils/capa.pdf
-      [2] utils/contra_capa.pdf
-      [3] relatório (gerado aqui, com header/footer)
-      [4] utils/ultima_pagina.pdf
-    """
     # Normalizações
     df_dist = dist_df.copy()
     if "valor" not in df_dist.columns and "valor_atual" in df_dist.columns:
@@ -359,28 +352,35 @@ def generate_pdf(
         plt.close(fig); buf.seek(0)
         return buf
 
-    # ===== Conteúdo do relatório =====
+    # ===== Documento (BaseDocTemplate com Frame SEM padding) =====
     buffer_relatorio = io.BytesIO()
-    doc = SimpleDocTemplate(
+    doc = BaseDocTemplate(  # alteração realizada aqui
         buffer_relatorio,
         pagesize=A4,
-        topMargin=202,  # mantém respiro do conteúdo
-        bottomMargin=70,
         leftMargin=36,
-        rightMargin=36
+        rightMargin=36,
+        topMargin=202,
+        bottomMargin=70,
     )
+
+    # Template com frame alinhado às margens e sem padding
+    frame = Frame(  # alteração realizada aqui
+        doc.leftMargin, doc.bottomMargin, doc.width, doc.height,
+        leftPadding=0, rightPadding=0, topPadding=0, bottomPadding=0, id='normal'
+    )
+
+    def _on_page(canvas, doc_):
+        draw_header(canvas, doc_)
+        draw_footer(canvas, doc_)
+
+    doc.addPageTemplates(PageTemplate(id='OneCol', frames=[frame], onPage=_on_page))  # alteração realizada aqui
 
     elems.append(Spacer(1, 14))
 
     buf1, color_map = make_doughnut_atual(df_dist, "Percentual")
     buf2 = make_doughnut_modelo(df_modelo, "Percentual Ideal", color_map)
 
-    # Tabela comparativa com barras
-    header_small = ParagraphStyle(
-        name="HeaderSmall", parent=styles["Normal"], alignment=TA_CENTER,
-        fontName=BOLD_FONT, fontSize=8, leading=8, textColor=colors.whitesmoke
-    )
-
+    # Tabela comparativa central
     temp_df = pd.DataFrame({
         "Classificação": list(dict.fromkeys(list(df_dist["Classificação"]) + list(df_modelo["Classificação"])))
     })
@@ -388,20 +388,29 @@ def generate_pdf(
     temp_df["Modelo"] = temp_df["Classificação"].map(lambda x: df_modelo.loc[df_modelo["Classificação"] == x, "Percentual Ideal"].sum())
     temp_df = temp_df.fillna(0.0).sort_values(by="Atual", ascending=False).reset_index(drop=True)
 
+    header_small = ParagraphStyle(
+        name="HeaderSmall", parent=styles["Normal"], alignment=TA_CENTER,
+        fontName=BOLD_FONT, fontSize=8, leading=8, textColor=colors.whitesmoke
+    )
+
     def bar(color: str, align="left", value: float = 0.0):
         val = float(value) if pd.notna(value) else 0.0
         percent = f"{val:.1f}".replace(".", ",") + "%"
         b = InnerTable([[" "]], colWidths=4, rowHeights=12)
-        b.setStyle(TableStyle([("BACKGROUND", (0,0), (-1,-1), colors.HexColor(color) if isinstance(color, str) else color),
-                               ("BOX", (0,0), (-1,-1), 0, colors.white)]))
+        b.setStyle(TableStyle([
+            ("BACKGROUND", (0,0), (-1,-1), colors.HexColor(color) if isinstance(color, str) else color),
+            ("BOX", (0,0), (-1,-1), 0, colors.white)
+        ]))
         small = ParagraphStyle("Small", parent=styles["Normal"], fontName=BASE_FONT, fontSize=8, textColor=PRIMARY_COLOR,
                                alignment=TA_RIGHT if align=="right" else TA_LEFT)
         if align == "left":
             return Table([[b, Spacer(1,0), Paragraph(percent, small)]], colWidths=[4,1,None],
-                         style=[("VALIGN",(0,0),(-1,-1),"MIDDLE"), ("LEFTPADDING",(0,0),(-1,-1),0), ("RIGHTPADDING",(0,0),(-1,-1),0)])
+                         style=[("VALIGN",(0,0),(-1,-1),"MIDDLE"),
+                                ("LEFTPADDING",(0,0),(-1,-1),0), ("RIGHTPADDING",(0,0),(-1,-1),0)])
         else:
             return Table([[Paragraph(percent, small), Spacer(1,0), b]], colWidths=[None,1,4],
-                         style=[("VALIGN",(0,0),(-1,-1),"MIDDLE"), ("LEFTPADDING",(0,0),(-1,-1),0), ("RIGHTPADDING",(0,0),(-1,-1),0)])
+                         style=[("VALIGN",(0,0),(-1,-1),"MIDDLE"),
+                                ("LEFTPADDING",(0,0),(-1,-1),0), ("RIGHTPADDING",(0,0),(-1,-1),0)])
 
     rows = []
     small_center = ParagraphStyle("SmallCenter", parent=styles["Normal"], alignment=TA_CENTER, fontName=BASE_FONT, fontSize=7,
@@ -494,15 +503,14 @@ def generate_pdf(
         Table(
             [[Paragraph("Carteira Atual", title_center), "", Paragraph("Carteira Proposta", title_center)]],
             colWidths=[half_width, GAP, half_width], hAlign='LEFT',
-            style=[  # ↓ remove padding padrão da Tabela “externa”
-                ('LEFTPADDING',(0,0),(-1,-1),0),     # alteração realizada aqui
-                ('RIGHTPADDING',(0,0),(-1,-1),0),    # alteração realizada aqui
-                ('TOPPADDING',(0,0),(-1,-1),0),      # alteração realizada aqui
-                ('BOTTOMPADDING',(0,0),(-1,-1),0),   # alteração realizada aqui
+            style=[
+                ('LEFTPADDING',(0,0),(-1,-1),0),
+                ('RIGHTPADDING',(0,0),(-1,-1),0),
+                ('TOPPADDING',(0,0),(-1,-1),0),
+                ('BOTTOMPADDING',(0,0),(-1,-1),0),
             ]
         )
     )
-
     # Duas tabelas lado a lado, sem padding externo
     elems.append(
         Table(
@@ -510,10 +518,10 @@ def generate_pdf(
             colWidths=[half_width, GAP, half_width], hAlign='LEFT',
             style=[
                 ('VALIGN',(0,0),(-1,-1),'TOP'),
-                ('LEFTPADDING',(0,0),(-1,-1),0),     # alteração realizada aqui
-                ('RIGHTPADDING',(0,0),(-1,-1),0),    # alteração realizada aqui
-                ('TOPPADDING',(0,0),(-1,-1),0),      # alteração realizada aqui
-                ('BOTTOMPADDING',(0,0),(-1,-1),0),   # alteração realizada aqui
+                ('LEFTPADDING',(0,0),(-1,-1),0),
+                ('RIGHTPADDING',(0,0),(-1,-1),0),
+                ('TOPPADDING',(0,0),(-1,-1),0),
+                ('BOTTOMPADDING',(0,0),(-1,-1),0),
             ]
         )
     )
@@ -570,12 +578,9 @@ def generate_pdf(
     tbl.setStyle(style)
     elems.append(tbl)
 
-    # Build do relatório — com header/footer
-    def _on_page(canvas, doc):
-        draw_header(canvas, doc)
-        draw_footer(canvas, doc)
+    # Build do relatório
+    doc.build(elems)  # alteração: BaseDocTemplate usa PageTemplate com onPage
 
-    doc.build(elems, onFirstPage=_on_page, onLaterPages=_on_page)
     buffer_relatorio.seek(0)
 
     # Concatenação final
