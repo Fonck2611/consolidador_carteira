@@ -129,7 +129,7 @@ def draw_header(canvas, doc):
 
     # Linha 1: Nome do cliente | Perfil de risco sugerido
     row1_label_y = line_y - 16
-    row1_field_y = row1_label_y - 10    # ↓ reduzi o gap título → valor (antes: 14)  # alteração realizada aqui
+    row1_field_y = row1_label_y - 10    # ↓ reduzi o gap título → valor (antes: 14)
 
     # Nome do cliente
     canvas.setFillColor(label_color)
@@ -190,7 +190,7 @@ def draw_header(canvas, doc):
 
     # Linha 2: Nome de assessor | Aporte
     row2_label_y = row1_field_y - field_height - 12
-    row2_field_y = row2_label_y - 10    # ↓ reduzi o gap título → valor (antes: 14)  # alteração realizada aqui
+    row2_field_y = row2_label_y - 10    # ↓ reduzi o gap título → valor (antes: 14)
 
     # Nome de assessor
     canvas.setFillColor(label_color)
@@ -215,11 +215,11 @@ def draw_header(canvas, doc):
     canvas.drawString(perf_left + 6, row2_field_y - field_height + 5, APORTE_TEXT or "Sem aporte")
 
     # ====== Linha final do cabeçalho (abaixo das caixas) ======
-    bottom_boxes_y = row2_field_y - field_height + 2                     # base das caixas
-    footer_line_y = bottom_boxes_y - 6                                    # pequena folga abaixo  # alteração realizada aqui
+    bottom_boxes_y = row2_field_y - field_height + 2
+    footer_line_y = bottom_boxes_y - 6
     canvas.setStrokeColor(PRIMARY_COLOR)
     canvas.setLineWidth(0.6)
-    canvas.line(left, footer_line_y, right, footer_line_y)                # alteração realizada aqui
+    canvas.line(left, footer_line_y, right, footer_line_y)
 
     canvas.restoreState()
 
@@ -442,7 +442,7 @@ def generate_pdf(
                        style=[('VALIGN',(0,0),(-1,-1),'TOP'), ('ALIGN',(0,0),(-1,-1),'CENTER')]))
     elems.append(Spacer(1, 30))
 
-    # Tabelas "Carteira Atual" x "Proposta"
+    # ========== Tabelas "Carteira Atual" x "Proposta" (mesma largura, ocupando a página) ==========
     dist_fmt = df_dist.copy().sort_values(by="valor", ascending=False)
     dist_fmt["valor"] = pd.to_numeric(dist_fmt["valor"], errors="coerce").fillna(0.0)
     dist_fmt["Valor"] = dist_fmt["valor"].apply(_format_number_br)
@@ -456,11 +456,22 @@ def generate_pdf(
         modelo_fmt["valor"] = 0.0
     modelo_fmt = modelo_fmt.sort_values(by="valor", ascending=False)
     modelo_fmt["Valor"] = modelo_fmt["valor"].apply(_format_number_br)
-    modelo_fmt["% PL"]  = modelo_fmt["Percentual Ideal"].apply(lambda x: _format_number_br(x) + "%")
+    modelo_fmt["% PL"]  = modelo_fmt["Percentual Ideal"].apply(lambda x: _format_number_br(x) + "%"
+    )
     modelo_fmt = modelo_fmt[["Classificação", "Valor", "% PL"]]
 
-    tbl1 = Table([dist_fmt.columns.tolist()] + dist_fmt.values.tolist(), hAlign='LEFT')
-    tbl2 = Table([modelo_fmt.columns.tolist()] + modelo_fmt.values.tolist(), hAlign='LEFT')
+    # --- NOVO: garantir mesma largura e preencher do left ao right com GAP de 20pt ---
+    GAP = 20  # espaço entre as tabelas  # alteração realizada aqui
+    half_width = (doc.width - GAP) / 2     # largura de cada tabela               # alteração realizada aqui
+
+    # Distribuição das 3 colunas dentro de cada metade (55%/25%/20%)
+    colspec = [half_width * 0.55, half_width * 0.25, half_width * 0.20]          # alteração realizada aqui
+
+    tbl1 = Table([dist_fmt.columns.tolist()] + dist_fmt.values.tolist(),
+                 colWidths=colspec, hAlign='LEFT')                                # alteração realizada aqui
+    tbl2 = Table([modelo_fmt.columns.tolist()] + modelo_fmt.values.tolist(),
+                 colWidths=colspec, hAlign='LEFT')                                # alteração realizada aqui
+
     styl = TableStyle([
         ('BACKGROUND',(0,0),(-1,0),colors.gray),
         ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
@@ -472,15 +483,33 @@ def generate_pdf(
         ('VALIGN',(0,0),(-1,-1),'TOP'),
         ('FONTSIZE',(0,0),(-1,0),10),
         ('FONTSIZE',(0,1),(-1,-1),8),
+        ('LEFTPADDING',(0,0),(-1,-1),6),
+        ('RIGHTPADDING',(0,0),(-1,-1),6),
+        ('TOPPADDING',(0,0),(-1,-1),2),
+        ('BOTTOMPADDING',(0,0),(-1,-1),2),
     ])
     tbl1.setStyle(styl); tbl2.setStyle(styl)
 
-    title_center = ParagraphStyle(name="CenteredTitle", parent=styles["Heading2"], alignment=TA_CENTER,
-                                  textColor=PRIMARY_COLOR, fontName=BOLD_FONT)
-    elems.append(Table([[Paragraph("Carteira Atual", title_center), Paragraph("Carteira Proposta", title_center)]],
-                       colWidths=[doc.width/2, doc.width/2], hAlign='CENTER'))
-    elems.append(Table([[tbl1, tbl2]], colWidths=[doc.width/2, doc.width/2], hAlign='CENTER',
-                       style=[('VALIGN',(0,0),(-1,-1),'TOP')]))
+    title_center = ParagraphStyle(name="CenteredTitle", parent=styles["Heading2"],
+                                  alignment=TA_CENTER, textColor=PRIMARY_COLOR, fontName=BOLD_FONT)
+
+    # Linha de títulos com gap central de 20pt ocupando toda a largura
+    elems.append(
+        Table(
+            [[Paragraph("Carteira Atual", title_center), "", Paragraph("Carteira Proposta", title_center)]],
+            colWidths=[half_width, GAP, half_width], hAlign='LEFT'                 # alteração realizada aqui
+        )
+    )
+
+    # As duas tabelas lado a lado preenchendo a largura total
+    elems.append(
+        Table(
+            [[tbl1, "", tbl2]],
+            colWidths=[half_width, GAP, half_width], hAlign='LEFT',                # alteração realizada aqui
+            style=[('VALIGN',(0,0),(-1,-1),'TOP')]
+        )
+    )
+    # ========== Fim das tabelas lado a lado ==========
 
     # Página seguinte — Sugestão de Carteira (detalhada)
     elems.append(PageBreak())
@@ -557,7 +586,3 @@ def generate_pdf(
     writer.write(output_final)
     output_final.seek(0)
     return output_final.read()
-
-
-
-
