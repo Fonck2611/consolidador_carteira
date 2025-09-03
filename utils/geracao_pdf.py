@@ -442,7 +442,7 @@ def generate_pdf(
                        style=[('VALIGN',(0,0),(-1,-1),'TOP'), ('ALIGN',(0,0),(-1,-1),'CENTER')]))
     elems.append(Spacer(1, 30))
 
-    # ========== Tabelas "Carteira Atual" x "Proposta" (mesma largura, ocupando a página) ==========
+    # ========== Tabelas "Carteira Atual" x "Proposta" ==========
     dist_fmt = df_dist.copy().sort_values(by="valor", ascending=False)
     dist_fmt["valor"] = pd.to_numeric(dist_fmt["valor"], errors="coerce").fillna(0.0)
     dist_fmt["Valor"] = dist_fmt["valor"].apply(_format_number_br)
@@ -456,21 +456,17 @@ def generate_pdf(
         modelo_fmt["valor"] = 0.0
     modelo_fmt = modelo_fmt.sort_values(by="valor", ascending=False)
     modelo_fmt["Valor"] = modelo_fmt["valor"].apply(_format_number_br)
-    modelo_fmt["% PL"]  = modelo_fmt["Percentual Ideal"].apply(lambda x: _format_number_br(x) + "%"
-    )
+    modelo_fmt["% PL"]  = modelo_fmt["Percentual Ideal"].apply(lambda x: _format_number_br(x) + "%")
     modelo_fmt = modelo_fmt[["Classificação", "Valor", "% PL"]]
 
-    # --- NOVO: garantir mesma largura e preencher do left ao right com GAP de 20pt ---
-    GAP = 20  # espaço entre as tabelas  # alteração realizada aqui
-    half_width = (doc.width - GAP) / 2     # largura de cada tabela               # alteração realizada aqui
-
-    # Distribuição das 3 colunas dentro de cada metade (55%/25%/20%)
-    colspec = [half_width * 0.55, half_width * 0.25, half_width * 0.20]          # alteração realizada aqui
+    GAP = 20
+    half_width = (doc.width - GAP) / 2
+    colspec = [half_width * 0.55, half_width * 0.25, half_width * 0.20]
 
     tbl1 = Table([dist_fmt.columns.tolist()] + dist_fmt.values.tolist(),
-                 colWidths=colspec, hAlign='LEFT')                                # alteração realizada aqui
+                 colWidths=colspec, hAlign='LEFT')
     tbl2 = Table([modelo_fmt.columns.tolist()] + modelo_fmt.values.tolist(),
-                 colWidths=colspec, hAlign='LEFT')                                # alteração realizada aqui
+                 colWidths=colspec, hAlign='LEFT')
 
     styl = TableStyle([
         ('BACKGROUND',(0,0),(-1,0),colors.gray),
@@ -493,20 +489,32 @@ def generate_pdf(
     title_center = ParagraphStyle(name="CenteredTitle", parent=styles["Heading2"],
                                   alignment=TA_CENTER, textColor=PRIMARY_COLOR, fontName=BOLD_FONT)
 
-    # Linha de títulos com gap central de 20pt ocupando toda a largura
+    # Títulos sem padding externo (alinha com as margens)
     elems.append(
         Table(
             [[Paragraph("Carteira Atual", title_center), "", Paragraph("Carteira Proposta", title_center)]],
-            colWidths=[half_width, GAP, half_width], hAlign='LEFT'                 # alteração realizada aqui
+            colWidths=[half_width, GAP, half_width], hAlign='LEFT',
+            style=[  # ↓ remove padding padrão da Tabela “externa”
+                ('LEFTPADDING',(0,0),(-1,-1),0),     # alteração realizada aqui
+                ('RIGHTPADDING',(0,0),(-1,-1),0),    # alteração realizada aqui
+                ('TOPPADDING',(0,0),(-1,-1),0),      # alteração realizada aqui
+                ('BOTTOMPADDING',(0,0),(-1,-1),0),   # alteração realizada aqui
+            ]
         )
     )
 
-    # As duas tabelas lado a lado preenchendo a largura total
+    # Duas tabelas lado a lado, sem padding externo
     elems.append(
         Table(
             [[tbl1, "", tbl2]],
-            colWidths=[half_width, GAP, half_width], hAlign='LEFT',                # alteração realizada aqui
-            style=[('VALIGN',(0,0),(-1,-1),'TOP')]
+            colWidths=[half_width, GAP, half_width], hAlign='LEFT',
+            style=[
+                ('VALIGN',(0,0),(-1,-1),'TOP'),
+                ('LEFTPADDING',(0,0),(-1,-1),0),     # alteração realizada aqui
+                ('RIGHTPADDING',(0,0),(-1,-1),0),    # alteração realizada aqui
+                ('TOPPADDING',(0,0),(-1,-1),0),      # alteração realizada aqui
+                ('BOTTOMPADDING',(0,0),(-1,-1),0),   # alteração realizada aqui
+            ]
         )
     )
     # ========== Fim das tabelas lado a lado ==========
