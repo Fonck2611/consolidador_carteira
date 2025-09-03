@@ -515,7 +515,7 @@ def generate_pdf(
     liq_faixas = (
         ativos_local.assign(valor=_to_float_br(ativos_local[valor_col]))
                    .groupby("Faixa")["valor"].sum()
-                   .reindex(["D+0 (à mercado)","D+0","Até D+5","Até D+15","Até D+60","Até D+180","Acima de D+180"], fill_value=0.0)
+                   .reindex(["Acima de D+180","Até D+180","Até D+60","Até D+15","Até D+5","D+0","D+0 (à mercado)"], fill_value=0.0)
                    .reset_index()
     )
 
@@ -624,3 +624,4 @@ def generate_pdf(
     out = io.BytesIO()
     writer.write(out); out.seek(0)
     return out.read()
+
