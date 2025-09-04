@@ -4,11 +4,10 @@ from reportlab.platypus import (
     Table, TableStyle, Paragraph, Spacer, Image, PageBreak
 )
 from reportlab.platypus import Table as InnerTable
-from reportlab.platypus.flowables import KeepInFrame, Flowable
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
-from reportlab.lib.enums import TA_CENTER, TA_RIGHT, TA_LEFT
+from reportlab.lib.enums import TA_CENTER, TA_RIGHT
 from reportlab.lib.utils import ImageReader
 import pandas as pd
 import io
@@ -17,6 +16,7 @@ import unicodedata
 import re
 from PyPDF2 import PdfReader, PdfWriter
 from datetime import datetime
+from reportlab.platypus.flowables import KeepInFrame
 
 # === Matplotlib (headless)
 import matplotlib
@@ -26,58 +26,6 @@ import matplotlib.pyplot as plt
 from utils.cores import PALETTE
 
 # =========================
-# Flowable: imagem que ocupa o espaço restante preservando o aspecto
-# =========================
-class StretchToBottomImage(Flowable):
-    def __init__(self, img_bytes, min_height=90, vpad=0):
-        super().__init__()
-        self._img_bytes = img_bytes
-        self._img = ImageReader(img_bytes)
-        self.min_height = min_height
-        self.vpad = vpad
-        self._w = 0
-        self._h = 0
-
-    def wrap(self, availWidth, availHeight):
-        h = max(self.min_height, availHeight - self.vpad)
-        h = min(h, availHeight) if availHeight > 1 else h
-        if h < 1:
-            h = max(1, availHeight)
-        self._w, self._h = availWidth, h
-        return self._w, self._h
-
-    def draw(self):
-        iw, ih = self._img.getSize()
-        if ih <= 0 or iw <= 0:
-            return
-        # Tenta preencher a ALTURA; se estourar a largura, ajusta pela LARGURA
-        scale_h = self._h / ih
-        draw_w_h = iw * scale_h
-        draw_h_h = self._h
-
-        if draw_w_h <= self._w + 0.1:
-            dx = (self._w - draw_w_h) / 2.0
-            dy = 0
-            self.canv.drawImage(
-                self._img, dx, dy,
-                width=draw_w_h, height=draw_h_h,
-                preserveAspectRatio=True, mask='auto'
-            )
-        else:
-            scale_w = self._w / iw
-            draw_w_w = self._w
-            draw_h_w = ih * scale_w
-            dx = 0
-            dy = (self._h - draw_h_w) / 2.0
-            if dy < 0:
-                dy = 0
-            self.canv.drawImage(
-                self._img, dx, dy,
-                width=draw_w_w, height=draw_h_w,
-                preserveAspectRatio=True, mask='auto'
-            )
-
-# =========================
 # Estado global (para header)
 # =========================
 patrimonio_total = 0.0
@@ -85,15 +33,14 @@ CLIENTE_NOME = ""
 NOME_ASSESSOR = ""
 
 # Cores
-PRIMARY_COLOR      = colors.HexColor("#122940")
-HLINE_COLOR        = colors.HexColor("#D6DBE2")   # linhas horizontais
-HEADER_BG_SOFT     = colors.lightgrey             # <- cabeçalho das tabelas solicitadas
-SUGGESTION_ROW_BG  = colors.lightgrey             # linhas de classificação na "Sugestão de Carteira"
+PRIMARY_COLOR = colors.HexColor("#122940")
+HLINE_COLOR   = colors.HexColor("#D6DBE2")   # cinza claro para linhas horizontais
+HEADER_BG     = colors.lightgrey             # igual ao fundo dos grupos da “Sugestão de Carteira”
 
 # Variáveis do cabeçalho
 DATA_HOJE_STR = ""
-PERFIL_RISCO  = "PERSONALIZADA"
-APORTE_TEXT   = "Sem aporte"
+PERFIL_RISCO = "PERSONALIZADA"
+APORTE_TEXT = "Sem aporte"
 
 # Contato (topo direito)
 CONTACT_LINES = [
@@ -114,13 +61,10 @@ BOLD_FONT = "Helvetica-Bold"
 # -------------------------
 def _to_float_br(series) -> pd.Series:
     def conv(x):
-        if pd.isna(x):
-            return 0.0
-        if isinstance(x, (int, float)):
-            return float(x)
+        if pd.isna(x): return 0.0
+        if isinstance(x, (int, float)): return float(x)
         s = str(x).strip()
-        if s == "":
-            return 0.0
+        if s == "": return 0.0
         s = s.replace("R$", "").replace(" ", "").replace("%", "")
         if "," in s and "." in s:
             s = s.replace(".", "").replace(",", ".")
@@ -168,12 +112,10 @@ def _first_nonempty(d: dict, keys):
 
 def _inferir_perfil(sugestao: dict) -> str:
     sug = sugestao or {}
-
     cand = _first_nonempty(sug, [
         "carteira_modelo", "perfil", "perfil_sugerido", "perfil_risco",
         "profile", "risk_profile"
     ])
-
     codigo = _first_nonempty(sug, ["perfil_codigo", "perfil_id", "perfilCode", "risk_code"])
     code = str(codigo).strip().upper()
     if code in {"1","C","CONS","CONSERVADOR","CONSERVADORA"}: return "CONSERVADORA"
@@ -182,14 +124,10 @@ def _inferir_perfil(sugestao: dict) -> str:
     if code in {"4","P","PERSONALIZADO","PERSONALIZADA"}:     return "PERSONALIZADA"
 
     c = _normalize_text(cand)
-    if any(k in c for k in ["conserv", "consev", "defensiv", "baixo risco"]):
-        return "CONSERVADORA"
-    if any(k in c for k in ["moder", "balancead", "medio risco"]):
-        return "MODERADA"
-    if any(k in c for k in ["sofist", "arroj", "agress", "alto risco"]):
-        return "SOFISTICADA"
-    if any(k in c for k in ["person", "custom", "sob medida", "personaliz"]):
-        return "PERSONALIZADA"
+    if any(k in c for k in ["conserv", "consev", "defensiv", "baixo risco"]): return "CONSERVADORA"
+    if any(k in c for k in ["moder", "balancead", "medio risco"]):            return "MODERADA"
+    if any(k in c for k in ["sofist", "arroj", "agress", "alto risco"]):      return "SOFISTICADA"
+    if any(k in c for k in ["person", "custom", "sob medida", "personaliz"]): return "PERSONALIZADA"
     return "PERSONALIZADA"
 
 # -------------------------
@@ -235,12 +173,12 @@ def draw_header(canvas, doc):
     row1_label_y = line_y - 16
     row1_field_y = row1_label_y - 10
 
-    # Nome do cliente (sem negrito)
+    # Nome do cliente
     canvas.setFillColor(label_color); canvas.setFont(BOLD_FONT, 9)
     canvas.drawString(left, row1_label_y, "Nome do cliente")
     canvas.setFillColor(field_bg)
     canvas.roundRect(left, row1_field_y - field_h + 2, col_w, field_h, field_r, stroke=0, fill=1)
-    canvas.setFillColor(PRIMARY_COLOR); canvas.setFont(BASE_FONT, 10)  # <- sem negrito
+    canvas.setFillColor(PRIMARY_COLOR); canvas.setFont(BASE_FONT, 10)  # sem negrito
     canvas.drawString(left + 6, row1_field_y - field_h + 5, (CLIENTE_NOME or "").upper())
 
     # Perfil
@@ -254,8 +192,7 @@ def draw_header(canvas, doc):
     pill_gap  = 8
     pill_font = 8
     pad_x     = 8
-    col_w_perf = col_w
-    pill_w    = (col_w_perf - (len(pills)-1)*pill_gap) / len(pills)
+    pill_w    = (col_w - (len(pills)-1)*pill_gap) / len(pills)
 
     def fits(font_size, padding):
         maxw = max(canvas.stringWidth(p, BOLD_FONT, font_size) for p in pills)
@@ -291,12 +228,12 @@ def draw_header(canvas, doc):
     row2_label_y = row1_field_y - field_h - 12
     row2_field_y = row2_label_y - 10
 
-    # Assessor (sem negrito)
+    # Assessor
     canvas.setFillColor(label_color); canvas.setFont(BOLD_FONT, 9)
     canvas.drawString(left, row2_label_y, "Nome de assessor")
     canvas.setFillColor(field_bg)
     canvas.roundRect(left, row2_field_y - field_h + 2, col_w, field_h, field_r, stroke=0, fill=1)
-    canvas.setFillColor(PRIMARY_COLOR); canvas.setFont(BASE_FONT, 10)  # <- sem negrito
+    canvas.setFillColor(PRIMARY_COLOR); canvas.setFont(BASE_FONT, 10)  # sem negrito
     canvas.drawString(left + 6, row2_field_y - field_h + 5, (NOME_ASSESSOR or "").upper())
 
     # Aporte
@@ -364,7 +301,7 @@ def generate_pdf(
         total_val = df_dist["valor"].sum()
         df_dist["Percentual"] = (df_dist["valor"] / total_val * 100) if total_val else 0.0
 
-    # modelo (fallback)
+    # modelo (mantido para fallback apenas)
     df_modelo = modelo_df.copy()
     if "Percentual Ideal" not in df_modelo.columns:
         poss = [c for c in df_modelo.columns if "percentual" in c.lower()]
@@ -374,7 +311,7 @@ def generate_pdf(
             raise ValueError("modelo_df precisa conter a coluna 'Percentual Ideal'.")
     df_modelo["Percentual Ideal"] = _to_float_br(df_modelo["Percentual Ideal"])
 
-    # --- Proposta REAL (Etapas 4/5): soma de "Novo Valor"
+    # --- Proposta REAL (do que foi editado na Etapa 4/5): soma de Novo Valor
     df_prop = None
     if isinstance(ativos_df, pd.DataFrame) and ("Novo Valor" in ativos_df.columns or "valor_sugerido" in ativos_df.columns):
         col_nv = "Novo Valor" if "Novo Valor" in ativos_df.columns else "valor_sugerido"
@@ -416,7 +353,6 @@ def generate_pdf(
         sizes  = sorted_df[percent_col].tolist()
         colors_list = [PALETTE[i % len(PALETTE)] for i in range(len(labels))]
         color_map = dict(zip(labels, colors_list))
-
         buf = io.BytesIO()
         fig, ax = plt.subplots(figsize=(4, 4))
         ax.pie(
@@ -441,7 +377,6 @@ def generate_pdf(
                 else:
                     idx = len(color_map) % len(PALETTE); color_map[label] = PALETTE[idx]
         colors_list = [color_map[l] for l in labels]
-
         buf = io.BytesIO()
         fig, ax = plt.subplots(figsize=(4, 4))
         ax.pie(
@@ -490,7 +425,7 @@ def generate_pdf(
             ("BOX",(0,0),(-1,-1),0, colors.white)
         ]))
         small = ParagraphStyle("Small", parent=styles["Normal"], fontName=BASE_FONT, fontSize=8, textColor=PRIMARY_COLOR,
-                               alignment=TA_RIGHT if align=="right" else TA_LEFT)
+                               alignment=TA_RIGHT if align=="right" else TA_RIGHT)
         if align == "left":
             return Table([[b, Spacer(1,0), Paragraph(percent, small)]], colWidths=[4,1,None],
                          style=[("VALIGN",(0,0),(-1,-1),"MIDDLE"),
@@ -512,11 +447,13 @@ def generate_pdf(
         ('BACKGROUND',(0,0),(-1,-1),colors.whitesmoke),
         ('ALIGN',(0,0),(-1,-1),'CENTER'),
         ('VALIGN',(0,0),(-1,-1),'MIDDLE'),
+        # cabeçalho com a MESMA cor da sugestão de carteira e texto preto
+        ('BACKGROUND',(0,0),(-1,0),HEADER_BG),
+        ('TEXTCOLOR',(0,0),(-1,0),colors.black),
         ('LEFTPADDING',(0,1),(0,-1),0), ('RIGHTPADDING',(-1,1),(-1,-1),0),
         ('TOPPADDING',(0,0),(-1,-1),2), ('BOTTOMPADDING',(0,0),(-1,-1),2),
-        ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
-        ('BACKGROUND',(0,0),(-1,0),colors.gray),
         ('TEXTCOLOR',(0,1),(-1,-1),PRIMARY_COLOR),
+        # Linhas horizontais
         ('LINEABOVE',(0,0),(-1,0),0.4,HLINE_COLOR),
         ('LINEBELOW',(0,0),(-1,0),0.4,HLINE_COLOR),
         ('LINEBELOW',(0,1),(-1,-1),0.3,HLINE_COLOR),
@@ -539,7 +476,7 @@ def generate_pdf(
                        style=[('VALIGN',(0,0),(-1,-1),'TOP'), ('ALIGN',(0,0),(-1,-1),'CENTER')]))
     elems.append(Spacer(1, 18))
 
-    # ===== Tabelas "Carteira Atual" x "Proposta"
+    # ===== Tabelas "Carteira Atual" x "Proposta" (Proposta = df_prop)
     dist_fmt = df_dist.copy().sort_values(by="valor", ascending=False)
     dist_fmt["Valor"] = dist_fmt["valor"].apply(_format_number_br)
     dist_fmt["% PL"]  = dist_fmt["Percentual"].apply(lambda x: _format_number_br(x) + "%")
@@ -557,8 +494,9 @@ def generate_pdf(
     tbl1 = Table([dist_fmt.columns.tolist()] + dist_fmt.values.tolist(), colWidths=colspec, hAlign='LEFT')
     tbl2 = Table([prop_fmt.columns.tolist()] + prop_fmt.values.tolist(), colWidths=colspec, hAlign='LEFT')
 
-    # estilo base
     styl_common = TableStyle([
+        ('BACKGROUND',(0,0),(-1,0),HEADER_BG),       # cabeçalho na cor pedida
+        ('TEXTCOLOR',(0,0),(-1,0),colors.black),     # texto preto
         ('FONTNAME',(0,0),(-1,0),BOLD_FONT),
         ('FONTNAME',(0,1),(-1,-1),BASE_FONT),
         ('TEXTCOLOR',(0,1),(-1,-1),PRIMARY_COLOR),
@@ -575,15 +513,6 @@ def generate_pdf(
         ('LINEBELOW',(0,1),(-1,-1),0.3,HLINE_COLOR),
     ])
     tbl1.setStyle(styl_common); tbl2.setStyle(styl_common)
-    # cabeçalho com cor igual à linha de classificação da "Sugestão de Carteira"
-    tbl1.setStyle(TableStyle([
-        ('BACKGROUND',(0,0),(-1,0),HEADER_BG_SOFT),
-        ('TEXTCOLOR',(0,0),(-1,0),PRIMARY_COLOR),
-    ]))
-    tbl2.setStyle(TableStyle([
-        ('BACKGROUND',(0,0),(-1,0),HEADER_BG_SOFT),
-        ('TEXTCOLOR',(0,0),(-1,0),PRIMARY_COLOR),
-    ]))
 
     title_center = ParagraphStyle(name="CenteredTitle", parent=styles["Heading2"], alignment=TA_CENTER,
                                   textColor=PRIMARY_COLOR, fontName=BOLD_FONT)
@@ -653,13 +582,17 @@ def generate_pdf(
     fig.savefig(buf_liq, format='PNG', dpi=150, bbox_inches='tight')
     plt.close(fig); buf_liq.seek(0)
 
-    elems.append(Spacer(1, 6))
+    elems.append(Spacer(1, 8))
     elems.append(Paragraph(
         "Liquidez da carteira proposta (R$)",
         ParagraphStyle(name="H2_LIQ", parent=styles["Heading2"], fontName=BOLD_FONT, alignment=TA_CENTER, spaceAfter=2)
     ))
     elems.append(Spacer(1, 2))
-    elems.append(StretchToBottomImage(buf_liq, min_height=90, vpad=0))
+
+    liq_img_h = max(120, min(165, int(doc.height * 0.24)))
+    liq_img   = Image(buf_liq, width=doc.width, height=liq_img_h)
+    liq_img._preserveAspectRatio = True  # manter proporção
+    elems.append(KeepInFrame(maxWidth=doc.width, maxHeight=liq_img_h, content=[liq_img], mode='shrink'))
 
     # =================================================================
     # NOVA PÁGINA: Diferenças / Ativos Alocados / Ativos Resgatados
@@ -667,12 +600,12 @@ def generate_pdf(
     elems.append(PageBreak())
 
     hdr9 = ParagraphStyle("Hdr9", parent=styles["Normal"], fontName=BOLD_FONT,
-                          fontSize=9, alignment=TA_CENTER, textColor=colors.whitesmoke,
+                          fontSize=9, alignment=TA_CENTER, textColor=colors.black,  # texto preto
                           wordWrap="CJK")
     cell_wrap = ParagraphStyle("CellWrap", parent=styles["Normal"], fontName=BASE_FONT,
                                fontSize=8, textColor=PRIMARY_COLOR, wordWrap="CJK")
 
-    # 1) Diferenças entre Atual e Sugerida
+    # 1) Diferenças entre Atual e Sugerida (Sugerida = df_prop)
     all_classes = set(df_dist["Classificação"]).union(set(df_prop["Classificação"]))
     linhas = []
     for cls in all_classes:
@@ -699,22 +632,36 @@ def generate_pdf(
         return [avail * (p/s) for p in pcts]
 
     dif_colwidths = _cw_with_cushion([34, 16, 16, 16, 18])
+
     dif_tbl = Table([["Classificação","Atual (%)","Sugerida (%)","Ajuste (%)","Ação"]] + dif_df[["Classificação","Atual (%)","Sugerida (%)","Ajuste (%)","Ação"]].values.tolist(),
                     colWidths=dif_colwidths, hAlign='LEFT')
-    dif_tbl.setStyle(styl_common)
+
+    # >>> header com fundo igual ao da “Sugestão de Carteira” e texto preto
     dif_tbl.setStyle(TableStyle([
-        ('LEFTPADDING',(0,0),(-1,-1),4), ('RIGHTPADDING',(0,0),(-1,-1),4),
-        ('TOPPADDING',(0,0),(-1,0),4),   ('BOTTOMPADDING',(0,0),(-1,0),4),
-        # Cabeçalho com cor soft + texto primário
-        ('BACKGROUND',(0,0),(-1,0),HEADER_BG_SOFT),
-        ('TEXTCOLOR',(0,0),(-1,0),PRIMARY_COLOR),
+        ('BACKGROUND',(0,0),(-1,0),HEADER_BG),
+        ('TEXTCOLOR',(0,0),(-1,0),colors.black),
+        ('FONTNAME',(0,0),(-1,0),BOLD_FONT),
+        ('FONTNAME',(0,1),(-1,-1),BASE_FONT),
+        ('TEXTCOLOR',(0,1),(-1,-1),PRIMARY_COLOR),
+        ('ALIGN',(0,0),(-1,-1),'CENTER'),
+        ('VALIGN',(0,0),(-1,-1),'TOP'),
+        ('FONTSIZE',(0,0),(-1,0),10),
+        ('FONTSIZE',(0,1),(-1,-1),8),
+        ('LEFTPADDING',(0,0),(-1,-1),6),
+        ('RIGHTPADDING',(0,0),(-1,-1),6),
+        ('TOPPADDING',(0,0),(-1,-1),2),
+        ('BOTTOMPADDING',(0,0),(-1,-1),2),
+        ('LINEABOVE',(0,0),(-1,0),0.4,HLINE_COLOR),
+        ('LINEBELOW',(0,0),(-1,0),0.4,HLINE_COLOR),
+        ('LINEBELOW',(0,1),(-1,-1),0.3,HLINE_COLOR),
     ]))
+    # <<<
 
     elems.append(Paragraph("Diferenças entre Atual e Sugerida", ParagraphStyle(name="T", parent=styles["Heading2"], alignment=TA_CENTER, fontName=BOLD_FONT)))
     elems.append(dif_tbl)
     elems.append(Spacer(1, 18))
 
-    # 2) Ativos Alocados
+    # 2) Ativos Alocados / 3) Resgatados
     if "Valor Realocado" in ativos_df.columns:
         alocados = ativos_df.copy()
         for c in ["valor_atual", "Novo Valor", "Valor Realocado"]:
@@ -748,19 +695,29 @@ def generate_pdf(
                 ])
 
             alocados_tbl = Table(data_a, colWidths=w_a, hAlign='LEFT')
-            alocados_tbl.setStyle(styl_common)
             alocados_tbl.setStyle(TableStyle([
-                ('LEFTPADDING',(0,0),(-1,-1),3), ('RIGHTPADDING',(0,0),(-1,-1),3),
-                ('TOPPADDING',(0,0),(-1,0),4),   ('BOTTOMPADDING',(0,0),(-1,0),4),
-                ('BACKGROUND',(0,0),(-1,0),HEADER_BG_SOFT),
-                ('TEXTCOLOR',(0,0),(-1,0),PRIMARY_COLOR),
+                ('BACKGROUND',(0,0),(-1,0),HEADER_BG),
+                ('TEXTCOLOR',(0,0),(-1,0),colors.black),
+                ('FONTNAME',(0,0),(-1,0),BOLD_FONT),
+                ('FONTNAME',(0,1),(-1,-1),BASE_FONT),
+                ('TEXTCOLOR',(0,1),(-1,-1),PRIMARY_COLOR),
+                ('ALIGN',(0,0),(-1,-1),'CENTER'),
+                ('VALIGN',(0,0),(-1,-1),'TOP'),
+                ('FONTSIZE',(0,0),(-1,0),10),
+                ('FONTSIZE',(0,1),(-1,-1),8),
+                ('LEFTPADDING',(0,0),(-1,-1),3),
+                ('RIGHTPADDING',(0,0),(-1,-1),3),
+                ('TOPPADDING',(0,0),(-1,0),4),
+                ('BOTTOMPADDING',(0,0),(-1,0),4),
+                ('LINEABOVE',(0,0),(-1,0),0.4,HLINE_COLOR),
+                ('LINEBELOW',(0,0),(-1,0),0.4,HLINE_COLOR),
+                ('LINEBELOW',(0,1),(-1,-1),0.3,HLINE_COLOR),
             ]))
             elems.append(alocados_tbl)
         else:
             elems.append(Paragraph("_Nenhum ativo alocado._", styles["Italic"]))
         elems.append(Spacer(1, 18))
 
-        # 3) Ativos Resgatados
         resgatados = ativos_df.copy()
         for c in ["valor_atual", "Novo Valor", "Valor Realocado"]:
             if c in resgatados.columns:
@@ -793,12 +750,23 @@ def generate_pdf(
                 ])
 
             resgatados_tbl = Table(data_r, colWidths=w_r, hAlign='LEFT')
-            resgatados_tbl.setStyle(styl_common)
             resgatados_tbl.setStyle(TableStyle([
-                ('LEFTPADDING',(0,0),(-1,-1),3), ('RIGHTPADDING',(0,0),(-1,-1),3),
-                ('TOPPADDING',(0,0),(-1,0),4),   ('BOTTOMPADDING',(0,0),(-1,0),4),
-                ('BACKGROUND',(0,0),(-1,0),HEADER_BG_SOFT),
-                ('TEXTCOLOR',(0,0),(-1,0),PRIMARY_COLOR),
+                ('BACKGROUND',(0,0),(-1,0),HEADER_BG),
+                ('TEXTCOLOR',(0,0),(-1,0),colors.black),
+                ('FONTNAME',(0,0),(-1,0),BOLD_FONT),
+                ('FONTNAME',(0,1),(-1,-1),BASE_FONT),
+                ('TEXTCOLOR',(0,1),(-1,-1),PRIMARY_COLOR),
+                ('ALIGN',(0,0),(-1,-1),'CENTER'),
+                ('VALIGN',(0,0),(-1,-1),'TOP'),
+                ('FONTSIZE',(0,0),(-1,0),10),
+                ('FONTSIZE',(0,1),(-1,-1),8),
+                ('LEFTPADDING',(0,0),(-1,-1),3),
+                ('RIGHTPADDING',(0,0),(-1,-1),3),
+                ('TOPPADDING',(0,0),(-1,0),4),
+                ('BOTTOMPADDING',(0,0),(-1,0),4),
+                ('LINEABOVE',(0,0),(-1,0),0.4,HLINE_COLOR),
+                ('LINEBELOW',(0,0),(-1,0),0.4,HLINE_COLOR),
+                ('LINEBELOW',(0,1),(-1,-1),0.3,HLINE_COLOR),
             ]))
             elems.append(resgatados_tbl)
         else:
@@ -834,7 +802,7 @@ def generate_pdf(
 
     tbl = Table(data, colWidths=[doc.width*0.6, doc.width*0.2, doc.width*0.2], hAlign="LEFT", repeatRows=1)
     style = TableStyle([
-        ("BACKGROUND",(0,0),(-1,0),colors.gray),            # header escuro permanece
+        ("BACKGROUND",(0,0),(-1,0),colors.gray),
         ("TEXTCOLOR",(0,0),(-1,0),colors.whitesmoke),
         ("FONTNAME",(0,0),(-1,0),BOLD_FONT),
         ("FONTSIZE",(0,0),(-1,0),10),
@@ -851,7 +819,7 @@ def generate_pdf(
         ('LINEBELOW',(0,1),(-1,-1),0.3,HLINE_COLOR),
     ])
     for i in classification_rows:
-        style.add("BACKGROUND",(0,i),(-1,i),SUGGESTION_ROW_BG)   # linhas de classificação
+        style.add("BACKGROUND",(0,i),(-1,i),colors.lightgrey)
         style.add("FONTNAME",(0,i),(-1,i),BOLD_FONT)
     tbl.setStyle(style)
     elems.append(tbl)
