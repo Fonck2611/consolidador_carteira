@@ -4,6 +4,7 @@ from reportlab.platypus import (
     Table, TableStyle, Paragraph, Spacer, Image, PageBreak
 )
 from reportlab.platypus import Table as InnerTable
+from reportlab.platypus.flowables import KeepInFrame, Flowable
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
@@ -16,7 +17,6 @@ import unicodedata
 import re
 from PyPDF2 import PdfReader, PdfWriter
 from datetime import datetime
-from reportlab.platypus.flowables import KeepInFrame
 
 # === Matplotlib (headless)
 import matplotlib
@@ -24,6 +24,66 @@ matplotlib.use("Agg")
 import matplotlib.pyplot as plt
 
 from utils.cores import PALETTE
+
+# =========================
+# Flowable: imagem que ocupa o espaço restante preservando o aspecto
+# =========================
+class StretchToBottomImage(Flowable):
+    """
+    Desenha uma imagem para ocupar exatamente o espaço restante do frame.
+    - Preserva o aspect ratio.
+    - Tenta preencher a ALTURA; se estourar a largura, ajusta pela largura.
+    - Centraliza horizontal/verticalmente quando necessário.
+    """
+    def __init__(self, img_bytes, min_height=90, vpad=0):
+        super().__init__()
+        self._img_bytes = img_bytes
+        self._img = ImageReader(img_bytes)
+        self.min_height = min_height
+        self.vpad = vpad
+        self._w = 0
+        self._h = 0
+
+    def wrap(self, availWidth, availHeight):
+        h = max(self.min_height, availHeight - self.vpad)
+        h = min(h, availHeight) if availHeight > 1 else h
+        if h < 1:
+            h = max(1, availHeight)
+        self._w, self._h = availWidth, h
+        return self._w, self._h
+
+    def draw(self):
+        iw, ih = self._img.getSize()
+        if ih <= 0 or iw <= 0:
+            return
+        # Escala preferencial: preencher a ALTURA
+        scale_h = self._h / ih
+        draw_w_h = iw * scale_h
+        draw_h_h = self._h
+
+        if draw_w_h <= self._w + 0.1:
+            # Cabe pela largura: usa fill-height e centraliza na horizontal
+            dx = (self._w - draw_w_h) / 2.0
+            dy = 0
+            self.canv.drawImage(
+                self._img, dx, dy,
+                width=draw_w_h, height=draw_h_h,
+                preserveAspectRatio=True, mask='auto'
+            )
+        else:
+            # Não cabe: ajusta pela LARGURA e centraliza verticalmente
+            scale_w = self._w / iw
+            draw_w_w = self._w
+            draw_h_w = ih * scale_w
+            dx = 0
+            dy = (self._h - draw_h_w) / 2.0
+            if dy < 0:
+                dy = 0
+            self.canv.drawImage(
+                self._img, dx, dy,
+                width=draw_w_w, height=draw_h_w,
+                preserveAspectRatio=True, mask='auto'
+            )
 
 # =========================
 # Estado global (para header)
@@ -335,7 +395,6 @@ def generate_pdf(
     # Fallback: usa o modelo (excepcional)
     if df_prop is None:
         df_prop = df_modelo.rename(columns={"Percentual Ideal": "Percentual"}).copy()
-        # tenta considerar aporte no cálculo do valor; se não tiver, usa patrimônio atual
         try:
             ap = float(_to_float_br(pd.Series([(sugestao or {}).get("aporte_valor", 0.0)]))[0])
         except Exception:
@@ -544,10 +603,10 @@ def generate_pdf(
     def _extract_days(liq):
         m = re.search(r"D\+(\d+)", str(liq))
         return int(m.group(1)) if m else None
-    
+
     ativos_local = ativos_df.copy()
     ativos_local["days"] = ativos_local["Liquidez"].apply(_extract_days)
-    
+
     def _classify(row):
         d = row["days"]; liq = str(row["Liquidez"]).lower()
         if d is None: return "D+0"
@@ -558,9 +617,9 @@ def generate_pdf(
         if d > 0:   return "Até D+5"
         if d == 0 and "à mercado" in liq: return "D+0 (à mercado)"
         return "D+0"
-    
+
     ativos_local["Faixa"] = ativos_local.apply(_classify, axis=1)
-    
+
     valor_col = "Novo Valor" if "Novo Valor" in ativos_local.columns else "valor_atual"
     liq_faixas = (
         ativos_local.assign(valor=_to_float_br(ativos_local[valor_col]))
@@ -568,15 +627,14 @@ def generate_pdf(
                    .reindex(["Acima de D+180","Até D+180","Até D+60","Até D+15","Até D+5","D+0","D+0 (à mercado)"], fill_value=0.0)
                    .reset_index()
     )
-    
+
     cinza_txt = "#6B7280"
     buf_liq = io.BytesIO()
-    # altura do gráfico menor (para caber) – antes era 3.4
     fig, ax = plt.subplots(figsize=(7.5, 2.4))
     y_labels = ["Acima de D+180","Até D+180","Até D+60","Até D+15","Até D+5","D+0","D+0 (à mercado)"]
     y_pos = list(range(len(y_labels)))
     valores = [liq_faixas.set_index("Faixa").loc[l, "valor"] for l in y_labels]
-    
+
     bars = ax.barh(y_pos, valores, height=0.70)
     ax.set_yticks(y_pos, labels=y_labels)
     ax.invert_yaxis()
@@ -596,19 +654,17 @@ def generate_pdf(
     plt.tight_layout(pad=0.6)
     fig.savefig(buf_liq, format='PNG', dpi=150, bbox_inches='tight')
     plt.close(fig); buf_liq.seek(0)
-    
-    # menos espaços verticais
-    elems.append(Spacer(1, 8))
+
+    # menos espaços verticais e título
+    elems.append(Spacer(1, 6))
     elems.append(Paragraph(
         "Liquidez da carteira proposta (R$)",
         ParagraphStyle(name="H2_LIQ", parent=styles["Heading2"], fontName=BOLD_FONT, alignment=TA_CENTER, spaceAfter=2)
     ))
     elems.append(Spacer(1, 2))
-    
-    # altura-alvo do gráfico; se faltar espaço no frame, ele encolhe (KeepInFrame, mode='shrink')
-    liq_img_h = max(120, min(165, int(doc.height * 0.24)))  # entre 120 e 165 pts
-    liq_img   = Image(buf_liq, width=doc.width, height=liq_img_h)
-    elems.append(KeepInFrame(maxWidth=doc.width, maxHeight=liq_img_h, content=[liq_img], mode='shrink'))
+
+    # ocupa o restante da primeira página preservando o aspecto
+    elems.append(StretchToBottomImage(buf_liq, min_height=90, vpad=0))
 
     # =================================================================
     # NOVA PÁGINA: Diferenças / Ativos Alocados / Ativos Resgatados
@@ -651,24 +707,6 @@ def generate_pdf(
 
     dif_tbl = Table([["Classificação","Atual (%)","Sugerida (%)","Ajuste (%)","Ação"]] + dif_df[["Classificação","Atual (%)","Sugerida (%)","Ajuste (%)","Ação"]].values.tolist(),
                     colWidths=dif_colwidths, hAlign='LEFT')
-    styl_common = TableStyle([
-        ('BACKGROUND',(0,0),(-1,0),colors.gray),
-        ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
-        ('FONTNAME',(0,0),(-1,0),BOLD_FONT),
-        ('FONTNAME',(0,1),(-1,-1),BASE_FONT),
-        ('TEXTCOLOR',(0,1),(-1,-1),PRIMARY_COLOR),
-        ('ALIGN',(0,0),(-1,-1),'CENTER'),
-        ('VALIGN',(0,0),(-1,-1),'TOP'),
-        ('FONTSIZE',(0,0),(-1,0),10),
-        ('FONTSIZE',(0,1),(-1,-1),8),
-        ('LEFTPADDING',(0,0),(-1,-1),6),
-        ('RIGHTPADDING',(0,0),(-1,-1),6),
-        ('TOPPADDING',(0,0),(-1,-1),2),
-        ('BOTTOMPADDING',(0,0),(-1,-1),2),
-        ('LINEABOVE',(0,0),(-1,0),0.4,HLINE_COLOR),
-        ('LINEBELOW',(0,0),(-1,0),0.4,HLINE_COLOR),
-        ('LINEBELOW',(0,1),(-1,-1),0.3,HLINE_COLOR),
-    ])
     dif_tbl.setStyle(styl_common)
     dif_tbl.setStyle(TableStyle([
         ('LEFTPADDING',(0,0),(-1,-1),4), ('RIGHTPADDING',(0,0),(-1,-1),4),
@@ -679,7 +717,7 @@ def generate_pdf(
     elems.append(dif_tbl)
     elems.append(Spacer(1, 18))
 
-    # 2) Ativos Alocados / 3) Resgatados (inalterado)
+    # 2) Ativos Alocados / 3) Resgatados
     if "Valor Realocado" in ativos_df.columns:
         alocados = ativos_df.copy()
         for c in ["valor_atual", "Novo Valor", "Valor Realocado"]:
@@ -829,7 +867,3 @@ def generate_pdf(
 
     out = io.BytesIO(); writer.write(out); out.seek(0)
     return out.read()
-
-
-
-
