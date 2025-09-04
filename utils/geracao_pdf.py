@@ -692,16 +692,16 @@ def generate_pdf(
         linhas.append({
             "Classificação": cls,
             "Atual (%)": pa,
-            "Sugerida (%)": ps,
+            "Proposta (%)": ps,  # alteração realizada aqui
             "AjusteNum": adj,
             "Ajuste (%)": adj,
             "Ação": "Aumentar" if adj > 0 else ("Reduzir" if adj < 0 else "Inalterado")
         })
 
     dif_df = pd.DataFrame(linhas).sort_values("AjusteNum", ascending=False).reset_index(drop=True)
-    dif_df["Atual (%)"]    = dif_df["Atual (%)"].apply(lambda v: _format_number_br(v) + "%")
-    dif_df["Sugerida (%)"] = dif_df["Sugerida (%)"].apply(lambda v: _format_number_br(v) + "%")
-    dif_df["Ajuste (%)"]   = dif_df["Ajuste (%)"].apply(lambda v: _format_number_br(v) + "%")
+    dif_df["Atual (%)"]     = dif_df["Atual (%)"].apply(lambda v: _format_number_br(v) + "%")
+    dif_df["Proposta (%)"]  = dif_df["Proposta (%)"].apply(lambda v: _format_number_br(v) + "%")  # alteração realizada aqui
+    dif_df["Ajuste (%)"]    = dif_df["Ajuste (%)"].apply(lambda v: _format_number_br(v) + "%")
 
     def _cw_with_cushion(pcts):
         avail = doc.width - 12
@@ -710,7 +710,8 @@ def generate_pdf(
 
     dif_colwidths = _cw_with_cushion([34, 16, 16, 16, 18])
 
-    dif_tbl = Table([["Classificação","Atual (%)","Sugerida (%)","Ajuste (%)","Ação"]] + dif_df[["Classificação","Atual (%)","Sugerida (%)","Ajuste (%)","Ação"]].values.tolist(),
+    dif_tbl = Table([["Classificação","Atual (%)","Proposta (%)","Ajuste (%)","Ação"]]  # alteração realizada aqui
+                    + dif_df[["Classificação","Atual (%)","Proposta (%)","Ajuste (%)","Ação"]].values.tolist(),  # alteração realizada aqui
                     colWidths=dif_colwidths, hAlign='LEFT')
     dif_tbl.setStyle(styl_common)
     dif_tbl.setStyle(TableStyle([
@@ -718,7 +719,8 @@ def generate_pdf(
         ('TOPPADDING',(0,0),(-1,0),4),   ('BOTTOMPADDING',(0,0),(-1,0),4),
     ]))
 
-    elems.append(Paragraph("Diferenças entre Atual e Sugerida", ParagraphStyle(name="T", parent=styles["Heading2"], alignment=TA_CENTER, fontName=BOLD_FONT)))
+    elems.append(Paragraph("Diferenças entre Atual e Proposta",  # alteração realizada aqui
+                           ParagraphStyle(name="T", parent=styles["Heading2"], alignment=TA_CENTER, fontName=BOLD_FONT)))
     elems.append(dif_tbl)
     elems.append(Spacer(1, 18))
 
