@@ -312,6 +312,7 @@ def generate_pdf(
         total_val = df_dist["valor"].sum()
         df_dist["Percentual"] = (df_dist["valor"] / total_val * 100) if total_val else 0.0
 
+    # modelo (mantido para fallback apenas)
     df_modelo = modelo_df.copy()
     if "Percentual Ideal" not in df_modelo.columns:
         poss = [c for c in df_modelo.columns if "percentual" in c.lower()]
@@ -320,6 +321,27 @@ def generate_pdf(
         else:
             raise ValueError("modelo_df precisa conter a coluna 'Percentual Ideal'.")
     df_modelo["Percentual Ideal"] = _to_float_br(df_modelo["Percentual Ideal"])
+
+    # --- Proposta REAL (do que foi editado na Etapa 4/5): soma de Novo Valor
+    df_prop = None
+    if isinstance(ativos_df, pd.DataFrame) and ("Novo Valor" in ativos_df.columns or "valor_sugerido" in ativos_df.columns):
+        col_nv = "Novo Valor" if "Novo Valor" in ativos_df.columns else "valor_sugerido"
+        df_prop = (ativos_df.copy()
+                   .assign(valor=_to_float_br(ativos_df[col_nv]))
+                   .groupby("Classificação", as_index=False)["valor"].sum())
+        total_prop = df_prop["valor"].sum()
+        df_prop["Percentual"] = (df_prop["valor"]/total_prop*100) if total_prop else 0.0
+    # Fallback: usa o modelo (excepcional)
+    if df_prop is None:
+        df_prop = df_modelo.rename(columns={"Percentual Ideal": "Percentual"}).copy()
+        # tenta considerar aporte no cálculo do valor; se não tiver, usa patrimônio atual
+        try:
+            ap = float(_to_float_br(pd.Series([(sugestao or {}).get("aporte_valor", 0.0)]))[0])
+        except Exception:
+            ap = 0.0
+        base_total = float(df_dist["valor"].sum()) + max(ap, 0.0)
+        perc = _to_float_br(df_prop["Percentual"])
+        df_prop["valor"] = base_total * (perc / 100.0)
 
     # Estado global para header
     global patrimonio_total, CLIENTE_NOME, NOME_ASSESSOR, DATA_HOJE_STR, PERFIL_RISCO, APORTE_TEXT
@@ -381,7 +403,6 @@ def generate_pdf(
         plt.close(fig); buf.seek(0)
         return buf
 
-    # ===== Documento sem paddings
     buffer_relatorio = io.BytesIO()
     doc = BaseDocTemplate(
         buffer_relatorio, pagesize=A4,
@@ -398,15 +419,16 @@ def generate_pdf(
 
     elems.append(Spacer(1, 14))
 
+    # atual vs proposta (proposta = df_prop)
     buf1, color_map = make_doughnut_atual(df_dist, "Percentual")
-    buf2 = make_doughnut_modelo(df_modelo, "Percentual Ideal", color_map)
+    buf2 = make_doughnut_modelo(df_prop, "Percentual", color_map)
 
     # ===== Tabela comparativa central (barras)
     temp_df = pd.DataFrame({
-        "Classificação": list(dict.fromkeys(list(df_dist["Classificação"]) + list(df_modelo["Classificação"])))
+        "Classificação": list(dict.fromkeys(list(df_dist["Classificação"]) + list(df_prop["Classificação"])))
     })
-    temp_df["Atual"]  = temp_df["Classificação"].map(lambda x: df_dist.loc[df_dist["Classificação"] == x, "Percentual"].sum())
-    temp_df["Modelo"] = temp_df["Classificação"].map(lambda x: df_modelo.loc[df_modelo["Classificação"] == x, "Percentual Ideal"].sum())
+    temp_df["Atual"]    = temp_df["Classificação"].map(lambda x: df_dist.loc[df_dist["Classificação"] == x, "Percentual"].sum())
+    temp_df["Proposta"] = temp_df["Classificação"].map(lambda x: df_prop.loc[df_prop["Classificação"] == x, "Percentual"].sum())
     temp_df = temp_df.fillna(0.0).sort_values(by="Atual", ascending=False).reset_index(drop=True)
 
     def bar(color: str, align="left", value: float = 0.0):
@@ -433,7 +455,7 @@ def generate_pdf(
                                   fontName=BASE_FONT, fontSize=7, wordWrap='CJK', keepAll=True, textColor=PRIMARY_COLOR)
     for _, r in temp_df.iterrows():
         color = color_map.get(r["Classificação"], "#000000")
-        rows.append([bar(color,"left",r["Atual"]), Paragraph(str(r["Classificação"]), small_center), bar(color,"right",r["Modelo"])])
+        rows.append([bar(color,"left",r["Atual"]), Paragraph(str(r["Classificação"]), small_center), bar(color,"right",r["Proposta"])])
 
     comp_tbl = Table([["Atual (%)","Classificação","Proposta (%)"]] + rows, colWidths=[63,84,63], hAlign='CENTER')
     comp_tbl.setStyle(TableStyle([
@@ -445,7 +467,6 @@ def generate_pdf(
         ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
         ('BACKGROUND',(0,0),(-1,0),colors.gray),
         ('TEXTCOLOR',(0,1),(-1,-1),PRIMARY_COLOR),
-        # Linhas horizontais (sem verticais)
         ('LINEABOVE',(0,0),(-1,0),0.4,HLINE_COLOR),
         ('LINEBELOW',(0,0),(-1,0),0.4,HLINE_COLOR),
         ('LINEBELOW',(0,1),(-1,-1),0.3,HLINE_COLOR),
@@ -468,30 +489,23 @@ def generate_pdf(
                        style=[('VALIGN',(0,0),(-1,-1),'TOP'), ('ALIGN',(0,0),(-1,-1),'CENTER')]))
     elems.append(Spacer(1, 30))
 
-    # ===== Tabelas "Carteira Atual" x "Proposta"
+    # ===== Tabelas "Carteira Atual" x "Proposta" (Proposta = df_prop)
     dist_fmt = df_dist.copy().sort_values(by="valor", ascending=False)
     dist_fmt["Valor"] = dist_fmt["valor"].apply(_format_number_br)
     dist_fmt["% PL"]  = dist_fmt["Percentual"].apply(lambda x: _format_number_br(x) + "%")
     dist_fmt = dist_fmt[["Classificação", "Valor", "% PL"]]
 
-    modelo_fmt = df_modelo.copy()
-    if "Valor Ideal (R$)" in modelo_fmt.columns:
-        modelo_fmt["valor"] = _to_float_br(modelo_fmt["Valor Ideal (R$)"])
-    else:
-        base_total = patrimonio_total
-        perc = _to_float_br(modelo_fmt["Percentual Ideal"])
-        modelo_fmt["valor"] = base_total * (perc / 100.0)
-    modelo_fmt = modelo_fmt.sort_values(by="valor", ascending=False)
-    modelo_fmt["Valor"] = modelo_fmt["valor"].apply(_format_number_br)
-    modelo_fmt["% PL"]  = modelo_fmt["Percentual Ideal"].apply(lambda x: _format_number_br(x) + "%")
-    modelo_fmt = modelo_fmt[["Classificação", "Valor", "% PL"]]
+    prop_fmt = df_prop.copy().sort_values(by="valor", ascending=False)
+    prop_fmt["Valor"] = prop_fmt["valor"].apply(_format_number_br)
+    prop_fmt["% PL"]  = prop_fmt["Percentual"].apply(lambda x: _format_number_br(x) + "%")
+    prop_fmt = prop_fmt[["Classificação", "Valor", "% PL"]]
 
     GAP = 20
     half = (doc.width - GAP) / 2
     colspec = [half*0.55, half*0.25, half*0.20]
 
     tbl1 = Table([dist_fmt.columns.tolist()] + dist_fmt.values.tolist(), colWidths=colspec, hAlign='LEFT')
-    tbl2 = Table([modelo_fmt.columns.tolist()] + modelo_fmt.values.tolist(), colWidths=colspec, hAlign='LEFT')
+    tbl2 = Table([prop_fmt.columns.tolist()] + prop_fmt.values.tolist(), colWidths=colspec, hAlign='LEFT')
 
     styl_common = TableStyle([
         ('BACKGROUND',(0,0),(-1,0),colors.gray),
@@ -507,7 +521,6 @@ def generate_pdf(
         ('RIGHTPADDING',(0,0),(-1,-1),6),
         ('TOPPADDING',(0,0),(-1,-1),2),
         ('BOTTOMPADDING',(0,0),(-1,-1),2),
-        # Linhas horizontais (sem verticais)
         ('LINEABOVE',(0,0),(-1,0),0.4,HLINE_COLOR),
         ('LINEBELOW',(0,0),(-1,0),0.4,HLINE_COLOR),
         ('LINEBELOW',(0,1),(-1,-1),0.3,HLINE_COLOR),
@@ -564,7 +577,7 @@ def generate_pdf(
 
     bars = ax.barh(y_pos, valores, height=0.70)
     ax.set_yticks(y_pos, labels=y_labels)
-    ax.invert_yaxis()  # primeiro item no topo
+    ax.invert_yaxis()
     ax.tick_params(axis='y', labelsize=8, colors=cinza_txt, length=0)
     ax.set_ylabel("Faixa", fontsize=9, color=cinza_txt)
     ax.set_xlabel(""); ax.set_xticks([]); ax.tick_params(axis='x', length=0, colors=cinza_txt)
@@ -594,25 +607,24 @@ def generate_pdf(
     # =================================================================
     elems.append(PageBreak())
 
-    # helpers de cabeçalho/célula com quebra
     hdr9 = ParagraphStyle("Hdr9", parent=styles["Normal"], fontName=BOLD_FONT,
                           fontSize=9, alignment=TA_CENTER, textColor=colors.whitesmoke,
                           wordWrap="CJK")
     cell_wrap = ParagraphStyle("CellWrap", parent=styles["Normal"], fontName=BASE_FONT,
                                fontSize=8, textColor=PRIMARY_COLOR, wordWrap="CJK")
 
-    # 1) Diferenças entre Atual e Sugerida (ordenado por Ajuste desc)
-    all_classes = set(df_dist["Classificação"]).union(set(df_modelo["Classificação"]))
+    # 1) Diferenças entre Atual e Sugerida (Sugerida = df_prop)
+    all_classes = set(df_dist["Classificação"]).union(set(df_prop["Classificação"]))
     linhas = []
     for cls in all_classes:
         pa = float(df_dist.loc[df_dist["Classificação"] == cls, "Percentual"].sum())
-        ps = float(df_modelo.loc[df_modelo["Classificação"] == cls, "Percentual Ideal"].sum())
+        ps = float(df_prop.loc[df_prop["Classificação"] == cls, "Percentual"].sum())
         adj = round(ps - pa, 2)
         linhas.append({
             "Classificação": cls,
             "Atual (%)": pa,
             "Sugerida (%)": ps,
-            "AjusteNum": adj,                  # <- numérico para ordenar
+            "AjusteNum": adj,
             "Ajuste (%)": adj,
             "Ação": "Aumentar" if adj > 0 else ("Reduzir" if adj < 0 else "Inalterado")
         })
@@ -622,29 +634,44 @@ def generate_pdf(
     dif_df["Sugerida (%)"] = dif_df["Sugerida (%)"].apply(lambda v: _format_number_br(v) + "%")
     dif_df["Ajuste (%)"]   = dif_df["Ajuste (%)"].apply(lambda v: _format_number_br(v) + "%")
 
-    dif_cols = ["Classificação", "Atual (%)", "Sugerida (%)", "Ajuste (%)", "Ação"]
-
-    # função para colWidths que deixa folga (evita estourar a largura com paddings)
     def _cw_with_cushion(pcts):
-        avail = doc.width - 12  # ~12pt de folga
+        avail = doc.width - 12
         s = sum(pcts)
         return [avail * (p/s) for p in pcts]
 
     dif_colwidths = _cw_with_cushion([34, 16, 16, 16, 18])
 
-    dif_tbl = Table([dif_cols] + dif_df[dif_cols].values.tolist(),
+    dif_tbl = Table([["Classificação","Atual (%)","Sugerida (%)","Ajuste (%)","Ação"]] + dif_df[["Classificação","Atual (%)","Sugerida (%)","Ajuste (%)","Ação"]].values.tolist(),
                     colWidths=dif_colwidths, hAlign='LEFT')
+    styl_common = TableStyle([
+        ('BACKGROUND',(0,0),(-1,0),colors.gray),
+        ('TEXTCOLOR',(0,0),(-1,0),colors.whitesmoke),
+        ('FONTNAME',(0,0),(-1,0),BOLD_FONT),
+        ('FONTNAME',(0,1),(-1,-1),BASE_FONT),
+        ('TEXTCOLOR',(0,1),(-1,-1),PRIMARY_COLOR),
+        ('ALIGN',(0,0),(-1,-1),'CENTER'),
+        ('VALIGN',(0,0),(-1,-1),'TOP'),
+        ('FONTSIZE',(0,0),(-1,0),10),
+        ('FONTSIZE',(0,1),(-1,-1),8),
+        ('LEFTPADDING',(0,0),(-1,-1),6),
+        ('RIGHTPADDING',(0,0),(-1,-1),6),
+        ('TOPPADDING',(0,0),(-1,-1),2),
+        ('BOTTOMPADDING',(0,0),(-1,-1),2),
+        ('LINEABOVE',(0,0),(-1,0),0.4,HLINE_COLOR),
+        ('LINEBELOW',(0,0),(-1,0),0.4,HLINE_COLOR),
+        ('LINEBELOW',(0,1),(-1,-1),0.3,HLINE_COLOR),
+    ])
     dif_tbl.setStyle(styl_common)
     dif_tbl.setStyle(TableStyle([
         ('LEFTPADDING',(0,0),(-1,-1),4), ('RIGHTPADDING',(0,0),(-1,-1),4),
         ('TOPPADDING',(0,0),(-1,0),4),   ('BOTTOMPADDING',(0,0),(-1,0),4),
     ]))
 
-    elems.append(Paragraph("Diferenças entre Atual e Sugerida", title_center))
+    elems.append(Paragraph("Diferenças entre Atual e Sugerida", ParagraphStyle(name="T", parent=styles["Heading2"], alignment=TA_CENTER, fontName=BOLD_FONT)))
     elems.append(dif_tbl)
     elems.append(Spacer(1, 18))
 
-    # 2) Ativos Alocados
+    # 2) Ativos Alocados / 3) Resgatados (inalterado)
     if "Valor Realocado" in ativos_df.columns:
         alocados = ativos_df.copy()
         for c in ["valor_atual", "Novo Valor", "Valor Realocado"]:
@@ -652,13 +679,12 @@ def generate_pdf(
                 alocados[c] = _to_float_br(alocados[c])
         alocados = alocados[alocados["Valor Realocado"] > 0].rename(columns={"estrategia": "Ativo"})
 
-        elems.append(Paragraph("Ativos Alocados", title_center))
+        elems.append(Paragraph("Ativos Alocados", ParagraphStyle(name="T2", parent=styles["Heading2"], alignment=TA_CENTER, fontName=BOLD_FONT)))
         if not alocados.empty:
             alocados["Valor Atual (R$)"]     = alocados["valor_atual"].apply(_format_number_br)
             alocados["Novo Valor (R$)"]      = alocados["Novo Valor"].apply(_format_number_br)
             alocados["Valor Realocado (R$)"] = alocados["Valor Realocado"].apply(_format_number_br)
 
-            # cabeçalhos curtos para evitar wrap/overlap
             header_a = [Paragraph("Classificação", hdr9),
                         Paragraph("Ativo", hdr9),
                         Paragraph("Valor Atual", hdr9),
@@ -680,7 +706,6 @@ def generate_pdf(
 
             alocados_tbl = Table(data_a, colWidths=w_a, hAlign='LEFT')
             alocados_tbl.setStyle(styl_common)
-            # header mais alto e paddings mais estreitos no corpo
             alocados_tbl.setStyle(TableStyle([
                 ('LEFTPADDING',(0,0),(-1,-1),3), ('RIGHTPADDING',(0,0),(-1,-1),3),
                 ('TOPPADDING',(0,0),(-1,0),4),   ('BOTTOMPADDING',(0,0),(-1,0),4),
@@ -690,14 +715,13 @@ def generate_pdf(
             elems.append(Paragraph("_Nenhum ativo alocado._", styles["Italic"]))
         elems.append(Spacer(1, 18))
 
-        # 3) Ativos Resgatados
         resgatados = ativos_df.copy()
         for c in ["valor_atual", "Novo Valor", "Valor Realocado"]:
             if c in resgatados.columns:
                 resgatados[c] = _to_float_br(resgatados[c])
         resgatados = resgatados[resgatados["Valor Realocado"] < 0].rename(columns={"estrategia": "Ativo"})
 
-        elems.append(Paragraph("Ativos Resgatados", title_center))
+        elems.append(Paragraph("Ativos Resgatados", ParagraphStyle(name="T3", parent=styles["Heading2"], alignment=TA_CENTER, fontName=BOLD_FONT)))
         if not resgatados.empty:
             resgatados["Valor Atual (R$)"]     = resgatados["valor_atual"].apply(_format_number_br)
             resgatados["Novo Valor (R$)"]      = resgatados["Novo Valor"].apply(_format_number_br)
@@ -741,9 +765,9 @@ def generate_pdf(
 
     data = [["Ativo","Capital Alocado","% PL"]]
     classification_rows = []; row_idx = 1
-    total_sug = pd.to_numeric(ativos_df["Novo Valor"], errors="coerce").fillna(0.0).sum()
+    total_sug = pd.to_numeric(ativos_df.get("Novo Valor", 0.0), errors="coerce").fillna(0.0).sum()
 
-    class_sums = (ativos_df.assign(_novo=pd.to_numeric(ativos_df["Novo Valor"], errors="coerce").fillna(0.0))
+    class_sums = (ativos_df.assign(_novo=pd.to_numeric(ativos_df.get("Novo Valor", 0.0), errors="coerce").fillna(0.0))
                            .groupby("Classificação")["_novo"].sum().sort_values(ascending=False))
     for categoria, soma_val in class_sums.items():
         soma_pct = (soma_val/total_sug*100) if total_sug else 0.0
@@ -762,21 +786,18 @@ def generate_pdf(
 
     tbl = Table(data, colWidths=[doc.width*0.6, doc.width*0.2, doc.width*0.2], hAlign="LEFT", repeatRows=1)
     style = TableStyle([
-        # Cabeçalho
         ("BACKGROUND",(0,0),(-1,0),colors.gray),
         ("TEXTCOLOR",(0,0),(-1,0),colors.whitesmoke),
         ("FONTNAME",(0,0),(-1,0),BOLD_FONT),
         ("FONTSIZE",(0,0),(-1,0),10),
         ("ALIGN",(0,0),(-1,0),"CENTER"),
         ("VALIGN",(0,0),(-1,0),"MIDDLE"),
-        # Corpo
         ("TEXTCOLOR",(0,1),(-1,-1),PRIMARY_COLOR),
         ("FONTNAME",(0,1),(-1,-1),BASE_FONT),
         ("FONTSIZE",(0,1),(-1,-1),8),
         ("ALIGN",(0,1),(0,-1),"LEFT"),
         ("ALIGN",(1,1),(-1,-1),"CENTER"),
         ("VALIGN",(0,1),(-1,-1),"MIDDLE"),
-        # Linhas horizontais (sem verticais)
         ('LINEABOVE',(0,0),(-1,0),0.4,HLINE_COLOR),
         ('LINEBELOW',(0,0),(-1,0),0.4,HLINE_COLOR),
         ('LINEBELOW',(0,1),(-1,-1),0.3,HLINE_COLOR),
@@ -790,19 +811,13 @@ def generate_pdf(
     # Build
     doc.build(elems)
 
-    # Concatenação final
+    # Concatenação final (capa/contra/última)
     base_dir  = os.path.dirname(__file__)
-    capa_path = os.path.join(base_dir, "capa.pdf")
-    contra_path = os.path.join(base_dir, "contra_capa.pdf")
-    ultima_path = os.path.join(base_dir, "ultima_pagina.pdf")
-
     writer = PdfWriter()
-    for p in PdfReader(capa_path).pages: writer.add_page(p)
-    for p in PdfReader(contra_path).pages: writer.add_page(p)
+    for p in PdfReader(os.path.join(base_dir, "capa.pdf")).pages: writer.add_page(p)
+    for p in PdfReader(os.path.join(base_dir, "contra_capa.pdf")).pages: writer.add_page(p)
     for p in PdfReader(buffer_relatorio).pages: writer.add_page(p)
-    for p in PdfReader(ultima_path).pages: writer.add_page(p)
+    for p in PdfReader(os.path.join(base_dir, "ultima_pagina.pdf")).pages: writer.add_page(p)
 
-    out = io.BytesIO()
-    writer.write(out); out.seek(0)
+    out = io.BytesIO(); writer.write(out); out.seek(0)
     return out.read()
-
