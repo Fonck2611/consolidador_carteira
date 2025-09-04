@@ -150,7 +150,7 @@ def show():
                 direction='clockwise'
             )
             st.plotly_chart(fig_modelo, use_container_width=True)
-
+    
     if st.button("Avançar para Sugestão de Ajustes"):
         if carteira_tipo == "Personalizada" and round(soma_percentual, 2) != 100.00:
             st.warning("Ajuste a carteira sugerida para que totalize 100%.")
@@ -161,21 +161,56 @@ def show():
                 st.session_state.modelo_personalizado_dict = dict(
                     zip(modelo_df["Classificação"], modelo_df["Percentual"])
                 )
-
-            # >>> GARANTIR QUE O APORTE SIGA ADIANTE + MERGE DA SUGESTÃO <<<
-            sug_existente = dict(st.session_state.get("sugestao", {}))
-            sug_existente["carteira_modelo"] = carteira_tipo
+    
+            # merge seguro da sugestão (preserva o que já existia)
+            sug = dict(st.session_state.get("sugestao", {}))
+            sug["carteira_modelo"] = carteira_tipo
             if carteira_tipo == "Personalizada":
-                sug_existente["modelo_personalizado"] = st.session_state.get("modelo_personalizado_dict")
-
-            # Propaga aporte se já foi informado na Etapa 2
-            if "aporte_text" in st.session_state and st.session_state.get("aporte_text"):
-                sug_existente["aporte_text"] = st.session_state["aporte_text"]
-            if "aporte_valor" in st.session_state and st.session_state.get("aporte_valor") is not None:
-                sug_existente["aporte_valor"] = st.session_state["aporte_valor"]
-
-            st.session_state.sugestao = sug_existente
-            # <<< FIM – PROPAGAÇÃO DO APORTE >>>
-
+                sug["modelo_personalizado"] = st.session_state.get("modelo_personalizado_dict")
+            else:
+                # evita sobrar personalizado antigo ao trocar de modelo
+                sug.pop("modelo_personalizado", None)
+    
+            # ---- Propagação robusta do aporte ----
+            aporte_txt = st.session_state.get("aporte_text")
+            aporte_val = st.session_state.get("aporte_valor")
+    
+            def _parse_br_money(x):
+                if x is None:
+                    return None
+                if isinstance(x, (int, float)):
+                    return float(x)
+                s = str(x).strip().replace("R$", "").replace(" ", "")
+                if "," in s and "." in s:
+                    s = s.replace(".", "").replace(",", ".")
+                elif "," in s:
+                    s = s.replace(",", ".")
+                try:
+                    return float(s)
+                except:
+                    return None
+    
+            def _fmt_br(v):
+                s = f"{v:,.2f}"
+                return s.replace(",", "X").replace(".", ",").replace("X", ".")
+    
+            # se vier apenas texto, calcula numérico
+            if aporte_val is None and aporte_txt:
+                aporte_val = _parse_br_money(aporte_txt)
+    
+            # só grava se for válido (>= 0)
+            if aporte_val is not None and aporte_val >= 0:
+                sug["aporte_valor"] = float(aporte_val)
+                # se não há texto, gera a partir do numérico
+                if not aporte_txt:
+                    aporte_txt = _fmt_br(aporte_val)
+    
+            if aporte_txt:
+                sug["aporte_text"] = aporte_txt
+            # ---------------------------------------
+    
+            st.session_state.sugestao = sug
             st.session_state.etapa = 4
             st.rerun()
+
+
