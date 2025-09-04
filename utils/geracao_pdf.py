@@ -17,7 +17,7 @@ import re
 from PyPDF2 import PdfReader, PdfWriter
 from datetime import datetime
 from reportlab.platypus.flowables import KeepInFrame
-from reportlab.pdfbase import pdfmetrics 
+from reportlab.pdfbase import pdfmetrics  # alteração realizada aqui (import métricas de fonte)
 
 # === Matplotlib (headless)
 import matplotlib
@@ -875,7 +875,3 @@ def generate_pdf(
 
     out = io.BytesIO(); writer.write(out); out.seek(0)
     return out.read()
-
-
-
-
