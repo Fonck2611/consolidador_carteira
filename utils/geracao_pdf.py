@@ -25,6 +25,36 @@ import matplotlib.pyplot as plt
 
 from utils.cores import PALETTE
 
+from reportlab.platypus.flowables import KeepInFrame, Flowable
+from reportlab.lib.utils import ImageReader
+
+class StretchToBottomImage(Flowable):
+    """Desenha a imagem ocupando exatamente o espaço disponível do frame."""
+    def __init__(self, img_bytes, min_height=90, vpad=0):
+        super().__init__()
+        self._img_bytes = img_bytes
+        self._img = ImageReader(img_bytes)
+        self.min_height = min_height
+        self.vpad = vpad
+        self._w = 0
+        self._h = 0
+
+    def wrap(self, availWidth, availHeight):
+        # usa TODO o espaço restante do frame, respeitando um mínimo
+        h = max(self.min_height, availHeight - self.vpad)
+        # nunca pode devolver altura maior que o restante, senão quebra de página
+        h = min(h, availHeight)
+        if h < 1:
+            h = max(1, availHeight)
+        self._w, self._h = availWidth, h
+        return self._w, self._h
+
+    def draw(self):
+        # preenche toda a área (sem preservar aspect ratio para, de fato, ocupar o frame)
+        self.canv.drawImage(self._img, 0, 0, width=self._w, height=self._h,
+                            preserveAspectRatio=False, mask='auto')
+
+
 # =========================
 # Estado global (para header)
 # =========================
@@ -619,7 +649,7 @@ def generate_pdf(
     
     liq_img_h = max(120, min(165, int(doc.height * 0.24)))
     liq_img   = scaled_image(buf_liq, doc.width, liq_img_h)
-    elems.append(KeepInFrame(maxWidth=doc.width, maxHeight=liq_img_h, content=[liq_img], mode='shrink'))
+    elems.append(StretchToBottomImage(buf_liq, min_height=90, vpad=0))
 
     # =================================================================
     # NOVA PÁGINA: Diferenças / Ativos Alocados / Ativos Resgatados
@@ -822,3 +852,4 @@ def generate_pdf(
 
     out = io.BytesIO(); writer.write(out); out.seek(0)
     return out.read()
+
