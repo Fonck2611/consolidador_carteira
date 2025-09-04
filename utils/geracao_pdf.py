@@ -17,7 +17,7 @@ import re
 from PyPDF2 import PdfReader, PdfWriter
 from datetime import datetime
 from reportlab.platypus.flowables import KeepInFrame
-from reportlab.pdfbase import pdfmetrics  # alteração realizada aqui (import métricas de fonte)
+from reportlab.pdfbase import pdfmetrics  # alteração realizada aqui (para métricas de fonte)
 
 # === Matplotlib (headless)
 import matplotlib
@@ -41,9 +41,7 @@ class StretchToBottomImage(Flowable):
         self._h = 0
 
     def wrap(self, availWidth, availHeight):
-        # usa TODO o espaço restante do frame, respeitando um mínimo
         h = max(self.min_height, availHeight - self.vpad)
-        # nunca pode devolver altura maior que o restante, senão quebra de página
         h = min(h, availHeight)
         if h < 1:
             h = max(1, availHeight)
@@ -51,7 +49,6 @@ class StretchToBottomImage(Flowable):
         return self._w, self._h
 
     def draw(self):
-        # preenche toda a área (sem preservar aspect ratio para, de fato, ocupar o frame)
         self.canv.drawImage(self._img, 0, 0, width=self._w, height=self._h,
                             preserveAspectRatio=False, mask='auto')
 
@@ -65,7 +62,7 @@ NOME_ASSESSOR = ""
 
 # Cores
 PRIMARY_COLOR = colors.HexColor("#122940")
-HLINE_COLOR   = colors.HexColor("#D6DBE2")  # cinza claro para linhas horizontais
+HLINE_COLOR   = colors.HexColor("#D6DBE2")
 
 # Cabeçalho de tabelas
 HEADER_BG   = colors.HexColor("#D6DBE2")
@@ -177,16 +174,20 @@ def _inferir_perfil(sugestao: dict) -> str:
 # -------------------------
 # Helpers de alinhamento vertical
 # -------------------------
-def _baseline_center(rect_y: float, rect_h: float, font_name: str, font_size: float) -> float:
+def _baseline_center(rect_y: float, rect_h: float, font_name: str, font_size: float, optical: float = 0.0) -> float:
     """
-    Calcula a coordenada Y do *baseline* para centralizar verticalmente
-    o texto dentro do retângulo (rect_y, rect_h), usando métricas da fonte.
+    Calcula o Y do baseline para centralizar verticalmente o texto dentro de (rect_y, rect_h),
+    com um pequeno 'optical' para corrigir a percepção visual (valores NEGATIVOS baixam o texto).
     """
     face = pdfmetrics.getFont(font_name).face  # alteração realizada aqui
-    ascent = (face.ascent / 1000.0) * font_size
+    ascent  = (face.ascent  / 1000.0) * font_size
     descent = abs(face.descent / 1000.0) * font_size
-    # baseline = centro_do_retângulo - metade da (altura do texto “acima do baseline” - “abaixo do baseline”)
-    return rect_y + (rect_h / 2.0) - (ascent - descent) / 2.0  # alteração realizada aqui
+    baseline = rect_y + (rect_h / 2.0) - (ascent - descent) / 2.0
+    return baseline + optical  # alteração realizada aqui (aplica ajuste ótico)
+
+# offsets óticos padronizados (empíricos para Helvetica 10/8 em caixas de 16pt)
+OPTICAL_FIELD = -0.6  # baixa ~0.6pt nas caixas cinza    # alteração realizada aqui
+OPTICAL_PILL  = -0.4  # baixa ~0.4pt nas pílulas          # alteração realizada aqui
 
 # -------------------------
 # Cabeçalho / Rodapé
@@ -231,17 +232,17 @@ def draw_header(canvas, doc):
     row1_label_y = line_y - 16
     row1_field_y = row1_label_y - 10
 
-    # Nome do cliente (sem negrito)
+    # Nome do cliente
     canvas.setFillColor(label_color); canvas.setFont(BOLD_FONT, 9)
     canvas.drawString(left, row1_label_y, "Nome do cliente")
     canvas.setFillColor(field_bg)
     rect_y_1 = row1_field_y - field_h + 2
     canvas.roundRect(left, rect_y_1, col_w, field_h, field_r, stroke=0, fill=1)
     canvas.setFillColor(PRIMARY_COLOR); canvas.setFont(BASE_FONT, 10)
-    baseline_1 = _baseline_center(rect_y_1, field_h, BASE_FONT, 10)  # alteração realizada aqui
+    baseline_1 = _baseline_center(rect_y_1, field_h, BASE_FONT, 10, OPTICAL_FIELD)  # alteração realizada aqui
     canvas.drawString(left + 6, baseline_1, (CLIENTE_NOME or "").upper())  # alteração realizada aqui
 
-    # Perfil
+    # Perfil de risco
     perf_left = left + col_w + col_gap
     canvas.setFillColor(label_color); canvas.setFont(BOLD_FONT, 9)
     canvas.drawString(perf_left, row1_label_y, "Perfil de risco sugerido")
@@ -264,8 +265,7 @@ def draw_header(canvas, doc):
             pad_x -= 1
 
     start_x = perf_left
-    start_y = row1_field_y - field_h + 2  # y dos retângulos das pílulas
-
+    start_y = row1_field_y - field_h + 2
     canvas.setFont(BOLD_FONT, pill_font)
 
     def draw_pill(x, y, text, selected, width):
@@ -278,8 +278,8 @@ def draw_header(canvas, doc):
             canvas.setStrokeColor(PRIMARY_COLOR)
             canvas.roundRect(x, y, width, pill_h, 8, stroke=1, fill=1)
             canvas.setFillColor(PRIMARY_COLOR)
-        base_y = _baseline_center(y, pill_h, BOLD_FONT, pill_font)  # alteração realizada aqui
-        canvas.drawCentredString(x + width/2, base_y, text)         # alteração realizada aqui
+        base_y = _baseline_center(y, pill_h, BOLD_FONT, pill_font, OPTICAL_PILL)  # alteração realizada aqui
+        canvas.drawCentredString(x + width/2, base_y, text)                       # alteração realizada aqui
 
     px = start_x
     for p in pills:
@@ -290,15 +290,15 @@ def draw_header(canvas, doc):
     row2_label_y = row1_field_y - field_h - 12
     row2_field_y = row2_label_y - 10
 
-    # Assessor (sem negrito)
+    # Nome de assessor
     canvas.setFillColor(label_color); canvas.setFont(BOLD_FONT, 9)
     canvas.drawString(left, row2_label_y, "Nome de assessor")
     canvas.setFillColor(field_bg)
     rect_y_2 = row2_field_y - field_h + 2
     canvas.roundRect(left, rect_y_2, col_w, field_h, field_r, stroke=0, fill=1)
     canvas.setFillColor(PRIMARY_COLOR); canvas.setFont(BASE_FONT, 10)
-    baseline_2 = _baseline_center(rect_y_2, field_h, BASE_FONT, 10)  # alteração realizada aqui
-    canvas.drawString(left + 6, baseline_2, (NOME_ASSESSOR or "").upper())  # alteração realizada aqui
+    baseline_2 = _baseline_center(rect_y_2, field_h, BASE_FONT, 10, OPTICAL_FIELD)  # alteração realizada aqui
+    canvas.drawString(left + 6, baseline_2, (NOME_ASSESSOR or "").upper())          # alteração realizada aqui
 
     # Aporte
     canvas.setFillColor(label_color); canvas.setFont(BOLD_FONT, 9)
@@ -307,8 +307,8 @@ def draw_header(canvas, doc):
     rect_y_3 = row2_field_y - field_h + 2
     canvas.roundRect(perf_left, rect_y_3, col_w, field_h, field_r, stroke=0, fill=1)
     canvas.setFillColor(PRIMARY_COLOR); canvas.setFont(BASE_FONT, 10)
-    baseline_3 = _baseline_center(rect_y_3, field_h, BASE_FONT, 10)  # alteração realizada aqui
-    canvas.drawString(perf_left + 6, baseline_3, APORTE_TEXT or "Sem aporte")  # alteração realizada aqui
+    baseline_3 = _baseline_center(rect_y_3, field_h, BASE_FONT, 10, OPTICAL_FIELD)  # alteração realizada aqui
+    canvas.drawString(perf_left + 6, baseline_3, APORTE_TEXT or "Sem aporte")       # alteração realizada aqui
 
     # Linha inferior do cabeçalho
     base_boxes_y = row2_field_y - field_h + 2
@@ -413,9 +413,8 @@ def generate_pdf(
 
     # ---------- helper para preservar proporção ----------
     def scaled_image(buf: io.BytesIO, max_w: float, max_h: float) -> Image:
-        """Retorna um Image redimensionado que CABE em (max_w,max_h) preservando o aspect ratio."""
         ir = ImageReader(buf)
-        iw, ih = ir.getSize()                 # em "pontos" (px)
+        iw, ih = ir.getSize()
         scale = min(max_w / float(iw), max_h / float(ih))
         w = iw * scale
         h = ih * scale
@@ -482,7 +481,7 @@ def generate_pdf(
 
     elems.append(Spacer(1, 14))
 
-    # atual vs proposta (proposta = df_prop)
+    # atual vs proposta
     buf1, color_map = make_doughnut_atual(df_dist, "Percentual")
     buf2 = make_doughnut_modelo(df_prop, "Percentual", color_map)
 
@@ -578,7 +577,7 @@ def generate_pdf(
     styl_common = TableStyle([
         ('BACKGROUND',(0,0),(-1,0),HEADER_BG),
         ('TEXTCOLOR',(0,0),(-1,0),HEADER_TEXT),
-        ('FONTNAME',(0,0),(-1,0),BASE_FONT),      # sem negrito
+        ('FONTNAME',(0,0),(-1,0),BASE_FONT),
         ('FONTNAME',(0,1),(-1,-1),BASE_FONT),
         ('TEXTCOLOR',(0,1),(-1,-1),PRIMARY_COLOR),
         ('ALIGN',(0,0),(-1,-1),'CENTER'),
@@ -670,8 +669,6 @@ def generate_pdf(
     ))
     elems.append(Spacer(1, 2))
     
-    liq_img_h = max(120, min(165, int(doc.height * 0.24)))
-    liq_img   = scaled_image(buf_liq, doc.width, liq_img_h)
     elems.append(StretchToBottomImage(buf_liq, min_height=90, vpad=0))
 
     # =================================================================
@@ -811,7 +808,7 @@ def generate_pdf(
             elems.append(Paragraph("_Nenhum ativo resgatado._", styles["Italic"]))
         elems.append(Spacer(1, 6))
 
-    # --- Página seguinte — Sugestão de Carteira (detalhada) — mantém NEGRITO
+    # --- Página seguinte — Sugestão de Carteira (detalhada)
     elems.append(PageBreak())
     elems.append(Paragraph("Sugestão de Carteira",
                            ParagraphStyle(name="H2", parent=styles["Heading2"], fontName=BOLD_FONT)))
@@ -842,7 +839,7 @@ def generate_pdf(
     style = TableStyle([
         ("BACKGROUND",(0,0),(-1,0),colors.gray),
         ("TEXTCOLOR",(0,0),(-1,0),colors.whitesmoke),
-        ("FONTNAME",(0,0),(-1,0),BOLD_FONT),  # mantém NEGRITO nesta tabela
+        ("FONTNAME",(0,0),(-1,0),BOLD_FONT),
         ("FONTSIZE",(0,0),(-1,0),10),
         ("ALIGN",(0,0),(-1,0),"CENTER"),
         ("VALIGN",(0,0),(-1,0),"MIDDLE"),
