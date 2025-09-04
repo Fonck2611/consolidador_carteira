@@ -875,3 +875,6 @@ def generate_pdf(
 
     out = io.BytesIO(); writer.write(out); out.seek(0)
     return out.read()
+
+
+
