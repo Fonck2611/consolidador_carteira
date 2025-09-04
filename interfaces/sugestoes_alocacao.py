@@ -101,7 +101,7 @@ def show():
     classes_ordered = aumentos + reducoes + inalterados
 
     st.subheader(f"Total a alocar (inclui aporte): R$ {format_valor_br(total_alocar)}")
-    st.caption(f"Total a reduzir: R$ {format_valor_br(total_reduzir)} • Aporte: R$ {format_valor_br(aporte)}")
+    st.caption(f"Aporte: R$ {format_valor_br(aporte)}")
 
     if "open_classes" not in st.session_state:
         st.session_state.open_classes = {}
@@ -203,7 +203,7 @@ def show():
     # soma_novo_total - total_atual  -> deve chegar ao valor do aporte
     saldo_restante = aporte - (soma_novo_total - total_atual)
 
-    st.subheader(f"Saldo restante do aporte: R$ {format_valor_br(saldo_restante)}")
+    st.subheader(f"Saldo restante: R$ {format_valor_br(saldo_restante)}")
     if abs(saldo_restante) > 0.01:
         st.warning("Distribua o aporte entre os ativos até que o saldo restante zere (0,00).")
 
