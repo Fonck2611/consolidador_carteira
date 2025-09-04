@@ -239,8 +239,8 @@ def draw_header(canvas, doc):
     rect_y_1 = row1_field_y - field_h + 2
     canvas.roundRect(left, rect_y_1, col_w, field_h, field_r, stroke=0, fill=1)
     canvas.setFillColor(PRIMARY_COLOR); canvas.setFont(BASE_FONT, 10)
-    baseline_1 = _baseline_center(rect_y_1, field_h, BASE_FONT, 10, OPTICAL_FIELD)  # alteração realizada aqui
-    canvas.drawString(left + 6, baseline_1, (CLIENTE_NOME or "").upper())  # alteração realizada aqui
+    baseline_1 = _baseline_center(rect_y_1, field_h, BASE_FONT, 10, OPTICAL_FIELD)  
+    canvas.drawString(left + 6, baseline_1, (CLIENTE_NOME or "").upper())  
 
     # Perfil de risco
     perf_left = left + col_w + col_gap
@@ -874,6 +874,7 @@ def generate_pdf(
 
     out = io.BytesIO(); writer.write(out); out.seek(0)
     return out.read()
+
 
 
 
