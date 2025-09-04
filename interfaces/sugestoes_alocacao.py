@@ -18,7 +18,6 @@ def _parse_br_money(x):
     if not s:
         return 0.0
     s = s.replace("R$", "").replace(" ", "")
-    # remove milhares e ajeita decimal
     if "," in s and "." in s:
         s = s.replace(".", "").replace(",", ".")
     elif "," in s:
@@ -27,6 +26,45 @@ def _parse_br_money(x):
         return float(s)
     except:
         return 0.0
+
+# ---- Helpers para Liquidez ----
+def _to_editor_liq(val: str) -> str:
+    """
+    Converte 'D+15' -> '15' para edição mais simples.
+    Mantém 'No Vencimento' quando for o caso.
+    """
+    s = str(val or "").strip()
+    if not s:
+        return ""
+    if s.lower() == "no vencimento":
+        return "No Vencimento"
+    m = re.search(r"d\+\s*(\d+)", s, flags=re.I)
+    if m:
+        return m.group(1)  # só o número
+    # se usuário já tiver digitado só números antes
+    n = re.sub(r"\D", "", s)
+    return n or s
+
+def _to_output_liq(val: str) -> str:
+    """
+    Normaliza a saída:
+      - 'No Vencimento' -> 'No Vencimento'
+      - '15' -> 'D+15'
+      - 'D+15' -> 'D+15'
+      - entradas inválidas -> '' (vazio)
+    """
+    s = str(val or "").strip()
+    if not s:
+        return ""
+    if s.lower() == "no vencimento":
+        return "No Vencimento"
+    if s.upper().startswith("D+"):
+        # já está no formato
+        m = re.search(r"^D\+\s*(\d+)$", s, flags=re.I)
+        return f"D+{m.group(1)}" if m else ""
+    # se for só número
+    n = re.sub(r"\D", "", s)
+    return f"D+{n}" if n else ""
 
 def show():
     st.header("4. Sugestões de Ajustes na Alocação")
@@ -48,6 +86,7 @@ def show():
         aporte = 0.0
 
     ativos_df = pd.DataFrame(ativos_raw)
+    # mapa original (apenas para inicialização)
     liq_map = dict(zip(ativos_df["estrategia"], ativos_df["Liquidez"]))
 
     modelo = (
@@ -73,13 +112,12 @@ def show():
         valor_atual_classe = float(dist.loc[dist["Classificação"] == cls, "Valor"].sum())
         pct_modelo = float(modelo.get(cls, 0.0))
         alvo_classe = (pct_modelo / 100.0) * base_total
-        ajustes[cls] = alvo_classe - valor_atual_classe  # pode ser + ou -
+        ajustes[cls] = alvo_classe - valor_atual_classe  # + ou -
 
     # Totais
-    total_alocar  = sum(v for v in ajustes.values() if v > 0)         # inclui o aporte
+    total_alocar  = sum(v for v in ajustes.values() if v > 0)         # inclui aporte
     total_reduzir = sum(abs(v) for v in ajustes.values() if v < 0)
     delta_diff = (total_alocar - total_reduzir) - aporte
-    # Ajuste fino de flutuação
     if abs(delta_diff) > 1e-6:
         pos_items = [(c, v) for c, v in ajustes.items() if v > 0]
         if pos_items:
@@ -89,7 +127,7 @@ def show():
             total_alocar  = sum(v for v in ajustes.values() if v > 0)
             total_reduzir = sum(abs(v) for v in ajustes.values() if v < 0)
 
-    # Ordem de exibição das classes
+    # Ordem de exibição
     aumentos        = [c for c, v in sorted(ajustes.items(), key=lambda x: x[1], reverse=True) if v > 0]
     reducoes        = [c for c, v in sorted(ajustes.items(), key=lambda x: x[1]) if v < 0]
     inalterados     = [c for c, v in ajustes.items() if abs(v) < 1e-9]
@@ -101,7 +139,7 @@ def show():
     if "open_classes" not in st.session_state:
         st.session_state.open_classes = {}
 
-    # Inicializa o editor para cada classe
+    # Inicializa o editor para cada classe (Liquidez já normalizada para o editor)
     for cls in classes_ordered:
         key = f"editor_df_{cls}"
         if key not in st.session_state:
@@ -109,15 +147,14 @@ def show():
             df0.columns = ["Ativo", "Valor Atual"]
             df0["Valor Realocado"] = 0.0
             df0["Novo Valor"]      = df0["Valor Atual"]
-            df0["Liquidez"]        = df0["Ativo"].map(liq_map)
-            st.session_state[key] = df0.reset_index(drop=True)
+            df0["Liquidez"]        = df0["Ativo"].map(liq_map).apply(_to_editor_liq)
+            st.session_state[key]  = df0.reset_index(drop=True)
 
-    # ===== total novo global (para % ajustado de cada classe)
+    # ===== total novo global (para % ajustado por classe)
     total_novo_global = 0.0
     for cls in classes_ordered:
         df_cls = st.session_state.get(f"editor_df_{cls}")
         if df_cls is not None:
-            # garante consistência
             nv = pd.to_numeric(df_cls["Valor Atual"], errors="coerce").fillna(0.0) + \
                  pd.to_numeric(df_cls["Valor Realocado"], errors="coerce").fillna(0.0)
             total_novo_global += float(nv.sum())
@@ -132,7 +169,7 @@ def show():
         df_current["Valor Atual"]     = pd.to_numeric(df_current["Valor Atual"], errors="coerce").fillna(0.0)
         df_current["Valor Realocado"] = pd.to_numeric(df_current["Valor Realocado"], errors="coerce").fillna(0.0)
         df_current["Novo Valor"]      = df_current["Valor Atual"] + df_current["Valor Realocado"]
-        df_current["Liquidez"]        = df_current["Ativo"].map(liq_map).apply(lambda x: re.sub(r"D\+ ?", "", str(x)))
+        # NÃO sobrescreve Liquidez aqui — mantém o valor editado pelo usuário
         df_current = df_current[["Ativo", "Liquidez", "Valor Atual", "Valor Realocado", "Novo Valor"]]
 
         soma_realocado_classe = float(df_current["Valor Realocado"].sum())
@@ -185,7 +222,10 @@ def show():
                 num_rows="dynamic",
                 column_config={
                     "Ativo":            st.column_config.TextColumn(label="Ativo"),
-                    "Liquidez":         st.column_config.TextColumn(label="Liquidez"),
+                    "Liquidez":         st.column_config.TextColumn(
+                        label="Liquidez",
+                        help="Digite apenas o número de dias (ex.: 5, 15) ou 'No Vencimento'. Também aceita 'D+5'."
+                    ),
                     "Valor Atual":      st.column_config.NumberColumn(label="Valor Atual", disabled=True),
                     "Valor Realocado":  st.column_config.NumberColumn(label="Valor Realocado"),
                     "Novo Valor":       st.column_config.NumberColumn(label="Novo Valor", disabled=True)
@@ -193,17 +233,25 @@ def show():
                 use_container_width=True,
                 key=f"editor_{cls}"
             )
-            # recalcula
+            # normaliza números e recalc
             edited["Valor Atual"]     = pd.to_numeric(edited["Valor Atual"], errors="coerce").fillna(0.0)
             edited["Valor Realocado"] = pd.to_numeric(edited["Valor Realocado"], errors="coerce").fillna(0.0)
             edited["Novo Valor"]      = edited["Valor Atual"] + edited["Valor Realocado"]
 
-            if any(prev.at[idx, "Valor Realocado"] != edited.at[idx, "Valor Realocado"]
-                   for idx in edited.index if idx in prev.index):
-                st.session_state[key] = edited
+            # detecta mudança em Realocado OU Liquidez
+            changed = False
+            for idx in edited.index:
+                if idx in prev.index:
+                    if prev.at[idx, "Valor Realocado"] != edited.at[idx, "Valor Realocado"]:
+                        changed = True
+                        break
+                    if str(prev.at[idx, "Liquidez"]).strip() != str(edited.at[idx, "Liquidez"]).strip():
+                        changed = True
+                        break
+
+            st.session_state[key] = edited
+            if changed:
                 st.rerun()
-            else:
-                st.session_state[key] = edited
 
     # ================= Saldo restante do APORTE =================
     soma_novo_total = sum(
@@ -222,12 +270,7 @@ def show():
         for cls in classes_ordered:
             df_cls = st.session_state[f"editor_df_{cls}"]
             for _, r in df_cls.iterrows():
-                liqui = str(r["Liquidez"]).strip()
-                if liqui == "No Vencimento":
-                    liqui_out = "No Vencimento"
-                else:
-                    liqui_out = f"D+{liqui}" if liqui and not liqui.startswith("D+") else liqui
-
+                liqui_out = _to_output_liq(r["Liquidez"])
                 novos_ativos.append({
                     "estrategia":       r["Ativo"],
                     "saldo_bruto":      float(r["Valor Atual"]),
