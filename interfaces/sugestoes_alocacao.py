@@ -44,12 +44,10 @@ def show():
         aporte = _parse_br_money(sug.get("aporte_valor"))
     elif "aporte_text" in sug:
         aporte = _parse_br_money(sug.get("aporte_text"))
-    # aporte negativo não faz sentido aqui; zera se vier <0
     if aporte < 0:
         aporte = 0.0
 
     ativos_df = pd.DataFrame(ativos_raw)
-    # guarda liquidez para repassar depois, sem mostrar na tabela
     liq_map = dict(zip(ativos_df["estrategia"], ativos_df["Liquidez"]))
 
     modelo = (
@@ -58,7 +56,7 @@ def show():
         else st.session_state.get("modelo_personalizado_dict", {})
     )
 
-    # Distribuição atual
+    # Distribuição atual (inicial)
     dist = (
         ativos_df.groupby("Classificação")["saldo_bruto"]
         .sum()
@@ -80,17 +78,14 @@ def show():
     # Totais
     total_alocar  = sum(v for v in ajustes.values() if v > 0)         # inclui o aporte
     total_reduzir = sum(abs(v) for v in ajustes.values() if v < 0)
-    # Diferença esperada: positivos - negativos = aporte
     delta_diff = (total_alocar - total_reduzir) - aporte
-    # Ajuste fino de flutuação (se necessário, e bem pequeno)
+    # Ajuste fino de flutuação
     if abs(delta_diff) > 1e-6:
-        # Corrige no maior positivo, sem deixá-lo negativo
         pos_items = [(c, v) for c, v in ajustes.items() if v > 0]
         if pos_items:
             cmax, vmax = max(pos_items, key=lambda x: x[1])
             novo = vmax - delta_diff
             ajustes[cmax] = max(novo, 0.0)
-            # recalc totais
             total_alocar  = sum(v for v in ajustes.values() if v > 0)
             total_reduzir = sum(abs(v) for v in ajustes.values() if v < 0)
 
@@ -113,9 +108,19 @@ def show():
             df0 = ativos_df[ativos_df["Classificação"] == cls][["estrategia", "saldo_bruto"]].copy()
             df0.columns = ["Ativo", "Valor Atual"]
             df0["Valor Realocado"] = 0.0
-            df0["Novo Valor"]      = df0["Valor Atual"]  # começa sem alocação do aporte
-            df0["Liquidez"]        = df0["Ativo"].map(liq_map)  # manter informação
+            df0["Novo Valor"]      = df0["Valor Atual"]
+            df0["Liquidez"]        = df0["Ativo"].map(liq_map)
             st.session_state[key] = df0.reset_index(drop=True)
+
+    # ===== total novo global (para % ajustado de cada classe)
+    total_novo_global = 0.0
+    for cls in classes_ordered:
+        df_cls = st.session_state.get(f"editor_df_{cls}")
+        if df_cls is not None:
+            # garante consistência
+            nv = pd.to_numeric(df_cls["Valor Atual"], errors="coerce").fillna(0.0) + \
+                 pd.to_numeric(df_cls["Valor Realocado"], errors="coerce").fillna(0.0)
+            total_novo_global += float(nv.sum())
 
     # Exibe/edita cada classe
     for cls in classes_ordered:
@@ -135,7 +140,11 @@ def show():
 
         pct_atual  = float(dist.loc[dist["Classificação"] == cls, "Percentual"].sum())
         pct_modelo = float(modelo.get(cls, 0.0))
-        class_total_atual = float(dist.loc[dist["Classificação"] == cls, "Valor"].sum())
+        class_total_inicial = float(dist.loc[dist["Classificação"] == cls, "Valor"].sum())
+
+        total_ajustado_classe = float(df_current["Novo Valor"].sum())
+        pct_ajustado_classe = (total_ajustado_classe / total_novo_global * 100.0) if total_novo_global else 0.0
+        pct_ajustado_fmt = f"{pct_ajustado_classe:.2f}".replace(".", ",") + "%"
 
         # Mensagem por classe
         if abs(restante_classe) < 1e-2:
@@ -157,8 +166,9 @@ def show():
                 <div style='border:1px solid #000; padding:15px; border-radius:10px; margin-bottom:10px; background:#fff;'>
                     <span style='font-size:16px;'>{simbolo} {cls}</span><br>
                     <span style='color:gray'>{pct_atual:.2f}% → {pct_modelo:.2f}%</span><br>
-                    <span style='color:gray'>Total da classe (atual): R$ {format_valor_br(class_total_atual)}</span><br>
-                    <span style='color:gray; font-weight:bold'>Total ajustado (classe): R$ {format_valor_br(df_current["Novo Valor"].sum())}</span><br>
+                    <span style='color:gray'>Total da classe (inicial): R$ {format_valor_br(class_total_inicial)}</span><br>
+                    <span style='color:gray; font-weight:bold'>Total ajustado (classe): R$ {format_valor_br(total_ajustado_classe)}</span><br>
+                    <span style='color:gray'>Percentual ajustado (classe): {pct_ajustado_fmt}</span><br>
                     <span style='color:{color}; font-weight:bold'>{texto}</span>
                 </div>
             """, unsafe_allow_html=True)
@@ -199,18 +209,14 @@ def show():
     soma_novo_total = sum(
         float(st.session_state[f"editor_df_{cls}"]["Novo Valor"].sum()) for cls in classes_ordered
     )
-    # Quanto do aporte já foi efetivamente alocado (net):
-    # soma_novo_total - total_atual  -> deve chegar ao valor do aporte
     saldo_restante = aporte - (soma_novo_total - total_atual)
 
     st.subheader(f"Saldo restante: R$ {format_valor_br(saldo_restante)}")
     if abs(saldo_restante) > 0.01:
         st.warning("Distribua o aporte entre os ativos até que o saldo restante zere (0,00).")
 
-    # Botão só habilita quando o aporte estiver 100% alocado
     botao_disabled = bool(abs(saldo_restante) > 0.01)
 
-    # Avança para a etapa 5 mantendo 'estrategia' e 'Liquidez'
     if st.button("Avançar para Confirmação e Geração do PDF", disabled=botao_disabled):
         novos_ativos = []
         for cls in classes_ordered:
