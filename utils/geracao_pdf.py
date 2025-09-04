@@ -16,6 +16,7 @@ import unicodedata
 import re
 from PyPDF2 import PdfReader, PdfWriter
 from datetime import datetime
+from reportlab.platypus.flowables import KeepInFrame
 
 # === Matplotlib (headless)
 import matplotlib
@@ -487,7 +488,7 @@ def generate_pdf(
 
     elems.append(Table([[grafico_atual, comp_tbl, grafico_sugerido]], colWidths=[155,230,155], hAlign='CENTER',
                        style=[('VALIGN',(0,0),(-1,-1),'TOP'), ('ALIGN',(0,0),(-1,-1),'CENTER')]))
-    elems.append(Spacer(1, 30))
+    elems.append(Spacer(1, 18))
 
     # ===== Tabelas "Carteira Atual" x "Proposta" (Proposta = df_prop)
     dist_fmt = df_dist.copy().sort_values(by="valor", ascending=False)
@@ -543,10 +544,10 @@ def generate_pdf(
     def _extract_days(liq):
         m = re.search(r"D\+(\d+)", str(liq))
         return int(m.group(1)) if m else None
-
+    
     ativos_local = ativos_df.copy()
     ativos_local["days"] = ativos_local["Liquidez"].apply(_extract_days)
-
+    
     def _classify(row):
         d = row["days"]; liq = str(row["Liquidez"]).lower()
         if d is None: return "D+0"
@@ -557,9 +558,9 @@ def generate_pdf(
         if d > 0:   return "Até D+5"
         if d == 0 and "à mercado" in liq: return "D+0 (à mercado)"
         return "D+0"
-
+    
     ativos_local["Faixa"] = ativos_local.apply(_classify, axis=1)
-
+    
     valor_col = "Novo Valor" if "Novo Valor" in ativos_local.columns else "valor_atual"
     liq_faixas = (
         ativos_local.assign(valor=_to_float_br(ativos_local[valor_col]))
@@ -567,14 +568,15 @@ def generate_pdf(
                    .reindex(["Acima de D+180","Até D+180","Até D+60","Até D+15","Até D+5","D+0","D+0 (à mercado)"], fill_value=0.0)
                    .reset_index()
     )
-
+    
     cinza_txt = "#6B7280"
     buf_liq = io.BytesIO()
-    fig, ax = plt.subplots(figsize=(7.5, 3.4))
+    # altura do gráfico menor (para caber) – antes era 3.4
+    fig, ax = plt.subplots(figsize=(7.5, 2.4))
     y_labels = ["Acima de D+180","Até D+180","Até D+60","Até D+15","Até D+5","D+0","D+0 (à mercado)"]
     y_pos = list(range(len(y_labels)))
     valores = [liq_faixas.set_index("Faixa").loc[l, "valor"] for l in y_labels]
-
+    
     bars = ax.barh(y_pos, valores, height=0.70)
     ax.set_yticks(y_pos, labels=y_labels)
     ax.invert_yaxis()
@@ -591,16 +593,22 @@ def generate_pdf(
         ax.text(rect.get_width() + (max_v*0.012 if max_v else 0.02),
                 rect.get_y() + rect.get_height()/2, txt,
                 va='center', ha='left', fontsize=9, color=cinza_txt)
-    plt.tight_layout(pad=1.0)
+    plt.tight_layout(pad=0.6)
     fig.savefig(buf_liq, format='PNG', dpi=150, bbox_inches='tight')
     plt.close(fig); buf_liq.seek(0)
-
-    elems.append(Spacer(1, 22))
-    elems.append(Paragraph("Liquidez da carteira proposta (R$)",
-                           ParagraphStyle(name="H2_LIQ", parent=styles["Heading2"],
-                                          fontName=BOLD_FONT, alignment=TA_CENTER)))
-    elems.append(Spacer(1, 6))
-    elems.append(Image(buf_liq, width=doc.width, height=182))
+    
+    # menos espaços verticais
+    elems.append(Spacer(1, 8))
+    elems.append(Paragraph(
+        "Liquidez da carteira proposta (R$)",
+        ParagraphStyle(name="H2_LIQ", parent=styles["Heading2"], fontName=BOLD_FONT, alignment=TA_CENTER, spaceAfter=2)
+    ))
+    elems.append(Spacer(1, 2))
+    
+    # altura-alvo do gráfico; se faltar espaço no frame, ele encolhe (KeepInFrame, mode='shrink')
+    liq_img_h = max(120, min(165, int(doc.height * 0.24)))  # entre 120 e 165 pts
+    liq_img   = Image(buf_liq, width=doc.width, height=liq_img_h)
+    elems.append(KeepInFrame(maxWidth=doc.width, maxHeight=liq_img_h, content=[liq_img], mode='shrink'))
 
     # =================================================================
     # NOVA PÁGINA: Diferenças / Ativos Alocados / Ativos Resgatados
@@ -821,5 +829,6 @@ def generate_pdf(
 
     out = io.BytesIO(); writer.write(out); out.seek(0)
     return out.read()
+
 
 
