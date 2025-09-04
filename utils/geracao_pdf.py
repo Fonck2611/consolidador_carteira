@@ -17,6 +17,7 @@ import re
 from PyPDF2 import PdfReader, PdfWriter
 from datetime import datetime
 from reportlab.platypus.flowables import KeepInFrame
+from reportlab.pdfbase import pdfmetrics  # alteração realizada aqui (import métricas de fonte)
 
 # === Matplotlib (headless)
 import matplotlib
@@ -174,6 +175,20 @@ def _inferir_perfil(sugestao: dict) -> str:
     return "PERSONALIZADA"
 
 # -------------------------
+# Helpers de alinhamento vertical
+# -------------------------
+def _baseline_center(rect_y: float, rect_h: float, font_name: str, font_size: float) -> float:
+    """
+    Calcula a coordenada Y do *baseline* para centralizar verticalmente
+    o texto dentro do retângulo (rect_y, rect_h), usando métricas da fonte.
+    """
+    face = pdfmetrics.getFont(font_name).face  # alteração realizada aqui
+    ascent = (face.ascent / 1000.0) * font_size
+    descent = abs(face.descent / 1000.0) * font_size
+    # baseline = centro_do_retângulo - metade da (altura do texto “acima do baseline” - “abaixo do baseline”)
+    return rect_y + (rect_h / 2.0) - (ascent - descent) / 2.0  # alteração realizada aqui
+
+# -------------------------
 # Cabeçalho / Rodapé
 # -------------------------
 def draw_header(canvas, doc):
@@ -220,9 +235,11 @@ def draw_header(canvas, doc):
     canvas.setFillColor(label_color); canvas.setFont(BOLD_FONT, 9)
     canvas.drawString(left, row1_label_y, "Nome do cliente")
     canvas.setFillColor(field_bg)
-    canvas.roundRect(left, row1_field_y - field_h + 2, col_w, field_h, field_r, stroke=0, fill=1)
+    rect_y_1 = row1_field_y - field_h + 2
+    canvas.roundRect(left, rect_y_1, col_w, field_h, field_r, stroke=0, fill=1)
     canvas.setFillColor(PRIMARY_COLOR); canvas.setFont(BASE_FONT, 10)
-    canvas.drawString(left + 6, row1_field_y - field_h + 5, (CLIENTE_NOME or "").upper())
+    baseline_1 = _baseline_center(rect_y_1, field_h, BASE_FONT, 10)  # alteração realizada aqui
+    canvas.drawString(left + 6, baseline_1, (CLIENTE_NOME or "").upper())  # alteração realizada aqui
 
     # Perfil
     perf_left = left + col_w + col_gap
@@ -247,7 +264,8 @@ def draw_header(canvas, doc):
             pad_x -= 1
 
     start_x = perf_left
-    start_y = row1_field_y - field_h + 2
+    start_y = row1_field_y - field_h + 2  # y dos retângulos das pílulas
+
     canvas.setFont(BOLD_FONT, pill_font)
 
     def draw_pill(x, y, text, selected, width):
@@ -260,7 +278,8 @@ def draw_header(canvas, doc):
             canvas.setStrokeColor(PRIMARY_COLOR)
             canvas.roundRect(x, y, width, pill_h, 8, stroke=1, fill=1)
             canvas.setFillColor(PRIMARY_COLOR)
-        canvas.drawCentredString(x + width/2, y + 4, text)
+        base_y = _baseline_center(y, pill_h, BOLD_FONT, pill_font)  # alteração realizada aqui
+        canvas.drawCentredString(x + width/2, base_y, text)         # alteração realizada aqui
 
     px = start_x
     for p in pills:
@@ -275,17 +294,21 @@ def draw_header(canvas, doc):
     canvas.setFillColor(label_color); canvas.setFont(BOLD_FONT, 9)
     canvas.drawString(left, row2_label_y, "Nome de assessor")
     canvas.setFillColor(field_bg)
-    canvas.roundRect(left, row2_field_y - field_h + 2, col_w, field_h, field_r, stroke=0, fill=1)
+    rect_y_2 = row2_field_y - field_h + 2
+    canvas.roundRect(left, rect_y_2, col_w, field_h, field_r, stroke=0, fill=1)
     canvas.setFillColor(PRIMARY_COLOR); canvas.setFont(BASE_FONT, 10)
-    canvas.drawString(left + 6, row2_field_y - field_h + 5, (NOME_ASSESSOR or "").upper())
+    baseline_2 = _baseline_center(rect_y_2, field_h, BASE_FONT, 10)  # alteração realizada aqui
+    canvas.drawString(left + 6, baseline_2, (NOME_ASSESSOR or "").upper())  # alteração realizada aqui
 
     # Aporte
     canvas.setFillColor(label_color); canvas.setFont(BOLD_FONT, 9)
     canvas.drawString(perf_left, row2_label_y, "Aporte")
     canvas.setFillColor(field_bg)
-    canvas.roundRect(perf_left, row2_field_y - field_h + 2, col_w, field_h, field_r, stroke=0, fill=1)
+    rect_y_3 = row2_field_y - field_h + 2
+    canvas.roundRect(perf_left, rect_y_3, col_w, field_h, field_r, stroke=0, fill=1)
     canvas.setFillColor(PRIMARY_COLOR); canvas.setFont(BASE_FONT, 10)
-    canvas.drawString(perf_left + 6, row2_field_y - field_h + 5, APORTE_TEXT or "Sem aporte")
+    baseline_3 = _baseline_center(rect_y_3, field_h, BASE_FONT, 10)  # alteração realizada aqui
+    canvas.drawString(perf_left + 6, baseline_3, APORTE_TEXT or "Sem aporte")  # alteração realizada aqui
 
     # Linha inferior do cabeçalho
     base_boxes_y = row2_field_y - field_h + 2
@@ -852,4 +875,3 @@ def generate_pdf(
 
     out = io.BytesIO(); writer.write(out); out.seek(0)
     return out.read()
-
